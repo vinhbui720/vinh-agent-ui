@@ -1,5 +1,6 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
+import type { OpenCodePermission, OpenCodeSession } from "./bridge";
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
@@ -143,6 +144,8 @@ export interface Settings {
    * Same key and values as the Mac's "pillColors".
    */
   pillColors: Record<string, string>;
+  /** Per pill: the outfit and the outfit tint its Mochi wears (src/mochi/wardrobe.ts pillWear). */
+  pillWardrobe: Record<string, { outfit: string; tint: string }>;
   /**
    * Interface language: "" follows the system (when Coucou has its language,
    * else English), or one of src/i18n's ten codes ("fr", "pt-BR", "zh-Hans"…).
@@ -169,7 +172,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   soundEnabled: true,
   soundVolume: 0.12,
-  autoCloseInterval: 15,
+  autoCloseInterval: 1,
   openOnHover: false,
   showClock: false,
   absenceInterval: 180,
@@ -192,6 +195,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: {},
   mochiOutfit: DEFAULT_OUTFIT,
   pillColors: {},
+  pillWardrobe: {},
   language: "",
 };
 
@@ -227,7 +231,20 @@ class AppState {
   droppedFile: { name: string; path: string } | null = null;
   noteMessage: string | null = null;
   searchResult: SearchResult | null = null;
-  chatHistory: ChatMessage[] = [];
+  /** Each pill has its own chat, by pill ID; `chatHistory` is the focused pill's. */
+  chats: Record<string, ChatMessage[]> = {};
+  /** OpenCode v2 (island/opencode.ts): its running sessions, the one shown, requests waiting. */
+  opencode: { sessions: OpenCodeSession[]; pending: OpenCodePermission[]; selected: string | null; error: string; lines: string[]; directory: string; panel: boolean } =
+    { sessions: [], pending: [], selected: null, error: "", lines: [], directory: localStorage.getItem("ocDir") ?? "", panel: false };
+  get chatPill(): string {
+    return this.focusId ?? this.mainPillId;
+  }
+  get chatHistory(): ChatMessage[] {
+    return (this.chats[this.chatPill] ??= []);
+  }
+  set chatHistory(v: ChatMessage[]) {
+    this.chats[this.chatPill] = v;
+  }
   pendingApproval: ApprovalInfo | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;

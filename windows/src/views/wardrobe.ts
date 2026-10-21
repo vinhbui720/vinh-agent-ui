@@ -4,9 +4,10 @@
 
 import { h } from "./dom";
 import { State } from "../core/state";
+import { PILL_PALETTE } from "../core/pill-colors";
 import { drawWardrobeIcon } from "../mochi/outfits";
 import {
-  OUTFIT_KEYS, OUTFIT_SELECTIONS, WARDROBE_STRINGS, parseOutfit, resolveOutfit, seasonalOutfit,
+  OUTFIT_KEYS, OUTFIT_SELECTIONS, WARDROBE_STRINGS, pillWear, resolveOutfit, seasonalOutfit,
   wardrobeHeader, type Outfit, type OutfitSelection,
 } from "../mochi/wardrobe";
 import type { ViewActions, ViewHost } from "./views";
@@ -16,6 +17,32 @@ const ICON = 28;
 
 export function buildWardrobe(actions: ViewActions): ViewHost {
   const note = h("span", { class: "wardrobe-note" });
+  const who = h("span", { class: "wardrobe-who" });
+  /** What the focused pill's Mochi wears: the wardrobe edits that pill. */
+  const current = () =>
+    pillWear(State.settings.pillWardrobe, State.focusId ?? State.mainPillId, State.mainPillId, State.settings.mochiOutfit);
+  const swatchRow = h("div", { class: "wardrobe-tints" });
+  const swatches = new Map<string, HTMLButtonElement>();
+  const pillRow = h("div", { class: "wardrobe-tints" }, h("span", { class: "wardrobe-row-label", text: tl("Pill") }));
+  const pillSwatches = new Map<string, HTMLButtonElement>();
+  for (const hex of PILL_PALETTE) {
+    const b = h("button", { class: "wardrobe-tint", title: hex, "aria-label": hex, onclick: () => actions.choosePillColor(hex) }) as HTMLButtonElement;
+    b.style.background = hex;
+    pillSwatches.set(hex, b);
+    pillRow.append(b);
+  }
+  swatchRow.append(h("span", { class: "wardrobe-row-label", text: tl("Clothes") }));
+  for (const hex of ["", ...PILL_PALETTE]) {
+    const b = h("button", {
+      class: hex ? "wardrobe-tint" : "wardrobe-tint none",
+      title: hex ? hex : tl("No colour"),
+      "aria-label": hex ? hex : tl("No colour"),
+      onclick: () => actions.chooseTint(hex || null),
+    }) as HTMLButtonElement;
+    if (hex) b.style.background = hex;
+    swatches.set(hex, b);
+    swatchRow.append(b);
+  }
   const grid = h("div", { class: "wardrobe-grid" });
   const el = h(
     "div",
@@ -26,8 +53,10 @@ export function buildWardrobe(actions: ViewActions): ViewHost {
       h(
         "div",
         { class: "stack wardrobe-stack" },
-        h("div", { class: "wardrobe-head" }, h("span", { class: "wardrobe-title", text: tl("Wardrobe") }), note),
+        h("div", { class: "wardrobe-head" }, h("span", { class: "wardrobe-title", text: tl("Wardrobe") }), who, note),
         grid,
+        pillRow,
+        swatchRow,
       ),
     ),
   );
@@ -38,7 +67,7 @@ export function buildWardrobe(actions: ViewActions): ViewHost {
   const items = new Map<OutfitSelection, { button: HTMLButtonElement; canvas: HTMLCanvasElement }>();
 
   const updateNote = () => {
-    note.textContent = wardrobeHeader(hovered, parseOutfit(State.settings.mochiOutfit), new Date());
+    note.textContent = wardrobeHeader(hovered, current().outfit, new Date());
   };
 
   for (const sel of OUTFIT_SELECTIONS) {
@@ -89,8 +118,13 @@ export function buildWardrobe(actions: ViewActions): ViewHost {
       drawIcons();
       // The island drops the preview when the view closes: so does the hover.
       if (State.wardrobePreview == null) hovered = null;
-      const current = parseOutfit(State.settings.mochiOutfit);
-      for (const [sel, { button }] of items) button.classList.toggle("on", sel === current);
+      const now = current();
+      for (const [sel, { button }] of items) button.classList.toggle("on", sel === now.outfit);
+      const t = State.focusTask;
+      who.textContent = t ? t.name : "";
+      who.style.color = t?.color ?? "";
+      for (const [hex, b] of pillSwatches) b.classList.toggle("on", hex === (t?.color ?? "").toUpperCase());
+      for (const [hex, b] of swatches) b.classList.toggle("on", hex === (now.tint ?? ""));
       updateNote();
     },
   };

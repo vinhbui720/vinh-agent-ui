@@ -40,6 +40,16 @@ pub struct ModelInfo {
 
 // ── Conversation ──────────────────────────────────────────────────────────────
 
+/// One conversation per pill, by pill ID: each pill's chat keeps its own history.
+#[derive(Default)]
+pub struct PillChats(Mutex<std::collections::HashMap<String, std::sync::Arc<Chat>>>);
+
+impl PillChats {
+    pub fn get(&self, pill: &str) -> std::sync::Arc<Chat> {
+        self.0.lock().unwrap().entry(pill.to_string()).or_default().clone()
+    }
+}
+
 /// The conversation is kept twice: in the wire format of the provider that
 /// answered last (Claude's carries web search blocks no other provider would
 /// understand), and as plain text turns. Switching provider mid-conversation

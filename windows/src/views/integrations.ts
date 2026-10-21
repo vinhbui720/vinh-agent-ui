@@ -70,6 +70,10 @@ export function idleStatus(
   const def = pillDefinition(id);
   const ok = (label: string) => ({ label, color: "#22C55E" });
   const missing = (label: string) => ({ label, color: "#F4505E" });
+  // OpenCode needs no hooks: it is read from its local API (island/opencode.ts).
+  if (id === "agent_opencode") {
+    return State.opencode.error ? missing(t("OpenCode is not running")) : ok(t("Connected"));
+  }
   // Pills driven by hooks never have a key: they are connected once the hooks
   // are in place (Mac #183). A session replaces this card; nothing is loading.
   if (def?.connect.kind === "hooks") return configured ? ok(t("Hooks installed")) : missing(t("Hooks not installed"));

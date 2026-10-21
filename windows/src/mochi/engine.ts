@@ -209,6 +209,8 @@ export class BotEngine {
   outfit: Outfit = "none";
   /** 0 = gone, 1 = fully on. */
   outfitPresence = 0;
+  /** "#RRGGBB" the outfit is coloured with, or null for its own colours. */
+  outfitTint: string | null = null;
   private outfitTarget: Outfit = "none";
 
   // Spring lag of the soft parts (pompoms, hat tips, scarf end), −1…1.
@@ -795,7 +797,7 @@ export class BotEngine {
 
     const dressed = !this.isMini && this.outfit !== "none";
     const head = dressed ? makeHead(R, this.yaw, this.pitch, this.physDx, this.physDy) : null;
-    const outfitState = { presence: this.outfitPresence, morph: this.morph };
+    const outfitState = { presence: this.outfitPresence, morph: this.morph, tint: this.outfitTint };
     if (head) drawOutfitBehind(x, this.outfit, head, outfitState);
 
     const body = this.bodyPath(rx, ry, R);

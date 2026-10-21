@@ -305,7 +305,7 @@ test("a folded card keeps the compact island on screen until it is answered", ()
 
 test("an unusable delay is ignored", () => {
   for (const bad of [NaN, -1, Infinity]) fsm.homeToPetitDelay = bad;
-  assert.equal(fsm.homeToPetitDelay, 15);
+  assert.equal(fsm.homeToPetitDelay, 1);
 });
 
 // ── Open on hover (IslandHoverTests.swift) ────────────────────────────────────

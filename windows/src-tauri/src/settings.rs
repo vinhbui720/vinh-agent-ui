@@ -62,6 +62,10 @@ pub struct Settings {
     /// Kept as it comes, like `mochi_outfit`: src/core/pill-colors.ts reads
     /// whatever is not a colour as "no choice".
     pub pill_colors: BTreeMap<String, String>,
+    /// What each pill's Mochi wears, by pill ID: `{ "outfit": "<selection>", "tint": "#RRGGBB" }`,
+    /// either part "" for no choice. Set in the wardrobe tab; read by src/mochi/wardrobe.ts `pillWear`,
+    /// which treats whatever it does not know as "no choice". Kept as it comes, like `pill_colors`.
+    pub pill_wardrobe: BTreeMap<String, BTreeMap<String, String>>,
     /// Interface language: "" follows the system, else one of i18n::LANGUAGES
     /// ("fr", "pt-BR", "zh-Hans"…). Kept as it comes, like `mochi_outfit`: a
     /// code this build doesn't know reads as "".
@@ -127,7 +131,7 @@ impl Default for Settings {
         Self {
             sound_enabled: true,
             sound_volume: 0.12,
-            auto_close_interval: 15.0,
+            auto_close_interval: 1.0,
             open_on_hover: false,
             absence_interval: 180.0,
             active_integrations: vec![
@@ -152,6 +156,7 @@ impl Default for Settings {
             shortcuts: Default::default(),
             mochi_outfit: "auto".into(),
             pill_colors: BTreeMap::new(),
+            pill_wardrobe: BTreeMap::new(),
             language: String::new(),
             desktop_mochi: DesktopMochiPref::default(),
             phone_link: false,
@@ -440,6 +445,7 @@ mod tests {
   "shortcuts": { "openChat": { "keys": "Ctrl+Shift+K", "enabled": false } },
   "mochiOutfit": "witchHat",
   "pillColors": { "integration_claude": "#2DD4BF" },
+  "pillWardrobe": { "agent_cursor": { "outfit": "crown", "tint": "#F4505E" } },
   "language": "pt-BR",
   "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } },
   "phoneLink": true,
@@ -683,6 +689,16 @@ mod tests {
         // Not a map of strings: the colours fall back, and nothing else does.
         let loaded = parse(&custom_with("pillColors", Some(json!(["#2DD4BF"])))).unwrap();
         assert!(loaded.pill_colors.is_empty());
+        assert_eq!(loaded.model, "some-model");
+    }
+
+    #[test]
+    fn pill_wardrobe_is_kept_and_costs_nothing_else_when_unusable() {
+        let loaded = parse(&custom_with("pillWardrobe", None)).unwrap();
+        assert!(loaded.pill_wardrobe.is_empty());
+        assert_eq!(loaded.mochi_outfit, "witchHat");
+        let loaded = parse(&custom_with("pillWardrobe", Some(json!(["crown"])))).unwrap();
+        assert!(loaded.pill_wardrobe.is_empty());
         assert_eq!(loaded.model, "some-model");
     }
 
@@ -948,6 +964,7 @@ mod tests {
                 "shortcuts",
                 "mochiOutfit",
                 "pillColors",
+                "pillWardrobe",
                 "language",
                 "desktopMochi",
                 "phoneLink",

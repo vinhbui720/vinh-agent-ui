@@ -2672,3 +2672,96 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   unicode-bidi: plaintext;
   text-align: start;
 }
+
+/* Wardrobe: which pill is being dressed, and its colour row. */
+.wardrobe-who {
+  font: 500 11px var(--font);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.wardrobe-tints {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.wardrobe-tint {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: default;
+}
+
+.wardrobe-tint.none {
+  background: transparent;
+  background-image: linear-gradient(45deg, transparent 45%, #6b7078 45% 55%, transparent 55%);
+}
+
+.wardrobe-tint.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.wardrobe-row-label {
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+  width: 44px;
+  flex: 0 0 auto;
+}
+
+/* OpenCode chat: session tabs with Stop pinned right, permission rows. */
+.oc-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.oc-tabs {
+  flex: 1 1 auto; min-width: 0; display: flex; gap: 5px; overflow-x: auto;
+  scrollbar-width: none;
+}
+.oc-tabs::-webkit-scrollbar { display: none; }
+.oc-note { font: 400 11px var(--font); color: var(--dim-2); }
+.oc-tab {
+  flex: 0 0 auto; max-width: 150px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06); color: var(--ink-2); font: 400 11px var(--font); cursor: default;
+}
+.oc-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oc-tab:hover { background: rgba(255, 255, 255, 0.1); }
+.oc-tab.on { border-color: rgba(255, 255, 255, 0.4); color: var(--ink); }
+.oc-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #5b606a; }
+.oc-dot.run { background: #4ade80; box-shadow: 0 0 4px #4ade80aa; }
+.oc-stop {
+  flex: 0 0 auto; width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
+  border-radius: 50%; border: 1px solid rgba(244, 80, 94, 0.5); background: rgba(244, 80, 94, 0.15);
+  color: #f4505e; cursor: default;
+}
+.oc-stop:hover { background: rgba(244, 80, 94, 0.3); }
+.oc-perms:empty { display: none; }
+.oc-perm { display: flex; align-items: center; gap: 5px; margin: 3px 0; }
+.oc-perm-text {
+  flex: 1 1 auto; min-width: 0; font: 400 11px var(--font); color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.oc-btn {
+  flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08); color: var(--ink); font: 400 11px var(--font); cursor: default;
+}
+.oc-btn:hover { background: rgba(255, 255, 255, 0.16); }
+
+/* Home: the OpenCode card's session tags. */
+.oc-home-tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0 0 108px; }
+.oc-home-tag {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 120px; padding: 1px 7px;
+  border-radius: 999px; background: rgba(255, 255, 255, 0.07); font: 400 10px var(--font); color: var(--dim-2);
+}
+.oc-home-tag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oc-plain { border-color: rgba(255, 255, 255, 0.25); background: rgba(255, 255, 255, 0.08); color: var(--ink-2); }
+.oc-plain:hover { background: rgba(255, 255, 255, 0.18); }
+.oc-panel { display: flex; flex-direction: column; gap: 5px; }
+.oc-path {
+  border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.06); border-radius: 8px;
+  padding: 3px 8px; color: var(--ink); font: 400 11px var(--font); outline: none; cursor: text;
+}
+.oc-hist { display: flex; flex-wrap: wrap; gap: 5px; max-height: 64px; overflow-y: auto; }

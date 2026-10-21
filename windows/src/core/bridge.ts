@@ -179,6 +179,9 @@ export interface PhoneAnswersStatus {
   enabled: boolean;
 }
 
+export interface OpenCodeSession { id: string; title: string; directory: string; running: boolean }
+export interface OpenCodePermission { id: string; sessionId: string; action: string; resources: string[] }
+
 export const Bridge = {
   boot: () => call<BootInfo>("boot"),
   /** The system's languages as the webview sees them, for Rust's own texts (i18n.rs). */
@@ -335,9 +338,19 @@ export const Bridge = {
 
   // ── Chat, files, secrets ──────────────────────────────────────────────────
   /** One chat turn. The API key and any file bytes never leave Rust. */
-  chatSend: (query: string, context: ChatContext | null) =>
-    callOrThrow<{ text: string }>("chat_send", { query, context }),
-  chatReset: () => call<void>("chat_reset"),
+  chatSend: (pill: string, query: string, context: ChatContext | null) =>
+    callOrThrow<{ text: string }>("chat_send", { pill, query, context }),
+  chatReset: (pill: string) => call<void>("chat_reset", { pill }),
+  /** OpenCode v2 API (opencode.rs): running sessions, their messages, and control. */
+  opencodeSessions: () => callOrThrow<OpenCodeSession[]>("opencode_sessions"),
+  opencodeCreate: (directory: string) => callOrThrow<string>("opencode_create", { directory }),
+  opencodeHistory: (directory: string) => callOrThrow<OpenCodeSession[]>("opencode_history", { directory }),
+  opencodeMessages: (session: string) => callOrThrow<{ id: string; role: "user" | "assistant"; text: string }[]>("opencode_messages", { session }),
+  opencodeSend: (session: string, text: string, delivery: "queue" | "steer") => callOrThrow<void>("opencode_send", { session, text, delivery }),
+  opencodeInterrupt: (session: string) => callOrThrow<void>("opencode_interrupt", { session }),
+  opencodePermissions: () => callOrThrow<OpenCodePermission[]>("opencode_permissions"),
+  opencodeReply: (session: string, request: string, decision: "once" | "always" | "reject") =>
+    callOrThrow<void>("opencode_reply", { session, request, decision }),
   /**
    * The models a provider offers, for the picker in the chat view. Rust asks
    * the provider only when it has a key (or a server address).

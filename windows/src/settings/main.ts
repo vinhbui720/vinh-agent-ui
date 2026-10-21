@@ -919,12 +919,12 @@ function generalSection(): HTMLElement {
   });
 
   const autoClose = h("input", {
-    type: "number", min: "5", max: "120", step: "1",
-    value: String(Math.round(settings.autoCloseInterval)),
+    type: "number", min: "0.5", max: "120", step: "0.5",
+    value: String(settings.autoCloseInterval),
     style: "width:72px",
   }) as HTMLInputElement;
   autoClose.addEventListener("change", () => {
-    settings.autoCloseInterval = Math.max(5, Math.min(120, Number(autoClose.value) || 15));
+    settings.autoCloseInterval = Math.max(0.5, Math.min(120, Number(autoClose.value) || 1));
     autoClose.value = String(settings.autoCloseInterval);
     void save();
   });

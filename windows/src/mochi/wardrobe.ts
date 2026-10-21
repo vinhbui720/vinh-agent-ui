@@ -4,6 +4,7 @@
 // in ./outfits.ts.
 
 import { N_, labels, t } from "../i18n/i18n";
+import { normalizeHex } from "../core/pill-colors";
 
 /** Every outfit, plus "auto" (dress for the season) and "none". Order of the wardrobe. */
 export const OUTFIT_SELECTIONS = [
@@ -140,4 +141,47 @@ export class SeasonCache {
     }
     return this.value;
   }
+}
+
+// ── Per pill ──────────────────────────────────────────────────────────────────
+
+/** What one pill's Mochi wears: an outfit selection and a tint ("#RRGGBB"), either "" for no choice. */
+export interface PillWear { outfit: string; tint: string }
+
+/**
+ * What a pill's Mochi wears. A pill with no entry keeps the old rule: the main
+ * pill wears the global `mochiOutfit`, the others nothing. Whatever is not an
+ * outfit or a colour reads as "no choice", so a damaged settings.json costs one
+ * pill its clothes and nothing else.
+ */
+export function pillWear(
+  wardrobe: unknown, id: string, mainId: string, globalOutfit: unknown,
+): { outfit: OutfitSelection; tint: string | null } {
+  const raw = wardrobe && typeof wardrobe === "object" && !Array.isArray(wardrobe)
+    ? (wardrobe as Record<string, unknown>)[id] : undefined;
+  const e = raw && typeof raw === "object" ? (raw as Partial<PillWear>) : {};
+  const own = typeof e.outfit === "string" && SELECTION_SET.has(e.outfit) ? (e.outfit as OutfitSelection) : null;
+  return {
+    outfit: own ?? (id === mainId ? parseOutfit(globalOutfit) : "none"),
+    tint: normalizeHex(e.tint),
+  };
+}
+
+/** The wardrobe preference once `patch` is applied to a pill. An entry that says nothing is dropped. */
+export function withPillWear(
+  wardrobe: unknown, id: string, patch: { outfit?: OutfitSelection; tint?: string | null },
+): Record<string, PillWear> {
+  const next: Record<string, PillWear> = {};
+  if (wardrobe && typeof wardrobe === "object" && !Array.isArray(wardrobe)) {
+    for (const [k, v] of Object.entries(wardrobe)) {
+      const o = v as Partial<PillWear> | null;
+      if (k && o && typeof o === "object") next[k] = { outfit: String(o.outfit ?? ""), tint: String(o.tint ?? "") };
+    }
+  }
+  const cur = next[id] ?? { outfit: "", tint: "" };
+  if (patch.outfit !== undefined) cur.outfit = patch.outfit;
+  if (patch.tint !== undefined) cur.tint = normalizeHex(patch.tint) ?? "";
+  if (cur.outfit || cur.tint) next[id] = cur;
+  else delete next[id];
+  return next;
 }

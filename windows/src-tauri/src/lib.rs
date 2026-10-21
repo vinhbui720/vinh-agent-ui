@@ -19,6 +19,7 @@ mod local_chat;
 mod log;
 mod net;
 mod notes;
+mod opencode;
 mod openai_compat;
 mod phone_link;
 mod pipe;
@@ -528,11 +529,13 @@ fn approval_decline(app: AppHandle, request_id: String) {
 async fn chat_send(
     app: AppHandle,
     shared: State<'_, Shared>,
-    chat: State<'_, Chat>,
+    chats: State<'_, chat::PillChats>,
+    pill: String,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
     let settings = shared.settings.lock().unwrap().clone();
+    let chat = chats.get(&pill);
     chat::send(&app, &chat, &settings, query, context).await
 }
 
@@ -558,8 +561,41 @@ fn local_set_key(url: String, key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn chat_reset(chat: State<Chat>) {
-    chat.reset();
+async fn opencode_sessions() -> Result<Vec<opencode::Session>, String> {
+    opencode::sessions().await
+}
+#[tauri::command]
+async fn opencode_create(directory: String) -> Result<String, String> {
+    opencode::create(&directory).await
+}
+#[tauri::command]
+async fn opencode_history(directory: String) -> Result<Vec<opencode::Session>, String> {
+    opencode::history(&directory).await
+}
+#[tauri::command]
+async fn opencode_messages(session: String) -> Result<Vec<opencode::Message>, String> {
+    opencode::messages(&session).await
+}
+#[tauri::command]
+async fn opencode_send(session: String, text: String, delivery: String) -> Result<(), String> {
+    opencode::prompt(&session, &text, &delivery).await
+}
+#[tauri::command]
+async fn opencode_interrupt(session: String) -> Result<(), String> {
+    opencode::interrupt(&session).await
+}
+#[tauri::command]
+async fn opencode_permissions() -> Result<Vec<opencode::Permission>, String> {
+    opencode::permissions().await
+}
+#[tauri::command]
+async fn opencode_reply(session: String, request: String, decision: String) -> Result<(), String> {
+    opencode::reply(&session, &request, &decision).await
+}
+
+#[tauri::command]
+fn chat_reset(chats: State<chat::PillChats>, pill: String) {
+    chats.get(&pill).reset();
 }
 
 /// Copies a dropped file into the inbox and reports its name back.
@@ -800,7 +836,7 @@ pub fn run() {
             gate: gate.clone(),
         })
         .manage(Pending::default())
-        .manage(Chat::default())
+        .manage(chat::PillChats::default())
         .manage(shortcuts::Registry::default())
         .manage(recap::load())
         .invoke_handler(tauri::generate_handler![
@@ -843,6 +879,14 @@ pub fn run() {
             local_connect,
             local_set_key,
             chat_reset,
+            opencode_sessions,
+            opencode_create,
+            opencode_history,
+            opencode_messages,
+            opencode_send,
+            opencode_interrupt,
+            opencode_permissions,
+            opencode_reply,
             ingest_file,
             secret_present,
             secret_set,

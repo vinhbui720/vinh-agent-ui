@@ -2,6 +2,7 @@
 // Mirrors IslandRootView.swift + IslandWindowController.swift.
 
 import { Tracked, Spring, clamp } from "../core/anim";
+import { answered, OPENCODE_PILL, newOpenCodeSession } from "./opencode";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
@@ -16,7 +17,9 @@ import { SPOTIFY_ID, islandDances } from "../core/spotify";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { Greeting } from "../mochi/greeting";
 import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
-import { SeasonCache, parseOutfit } from "../mochi/wardrobe";
+import { pillDefinition } from "../core/pills";
+import { withPillColor } from "../core/pill-colors";
+import { SeasonCache, pillWear, withPillWear } from "../mochi/wardrobe";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
@@ -181,6 +184,13 @@ export class Island {
       openTarget: () => {
         const task = State.focusTask;
         if (!task) return;
+        // OpenCode: a session pill opens its chat; the OpenCode pill itself starts a new session.
+        if (task.id.startsWith("ocs_")) { this.setView("prompt"); return; }
+        if (task.id === OPENCODE_PILL) {
+          this.setView("prompt");
+          if (!State.opencode.selected) void newOpenCodeSession().catch(() => {});
+          return;
+        }
         const urls: Record<string, string> = {
           integration_resend: "https://resend.com/emails",
           integration_vercel: "https://vercel.com/dashboard",
@@ -205,7 +215,12 @@ export class Island {
         void Bridge.log(`decide ${d} req=${req?.requestId ?? "none"}`);
         if (!req) return;
         Sound.play(d === "deny" ? "blip" : "approve");
-        void Bridge.approvalDecision(req.requestId, d);
+        if (req.requestId.startsWith("oc:")) {
+          // OpenCode request: "oc:<session>:<request>", answered through its API.
+          const [, session, request] = req.requestId.split(":");
+          answered.add(request);
+          void Bridge.opencodeReply(session, request, d === "deny" ? "reject" : "once").catch(() => {});
+        } else void Bridge.approvalDecision(req.requestId, d);
         this.closeApproval();
       },
       answer: (answers) => {
@@ -243,11 +258,32 @@ export class Island {
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
       chooseOutfit: (selection) => {
-        if (parseOutfit(State.settings.mochiOutfit) === selection) return;
-        State.settings.mochiOutfit = selection;
+        const id = State.focusId ?? State.mainPillId;
+        const cur = pillWear(State.settings.pillWardrobe, id, State.mainPillId, State.settings.mochiOutfit).outfit;
+        if (cur === selection) return;
+        // The main pill keeps the old preference (phone and desktop Mochi read it); the others have their own.
+        if (id === State.mainPillId) State.settings.mochiOutfit = selection;
+        else State.settings.pillWardrobe = withPillWear(State.settings.pillWardrobe, id, { outfit: selection });
         void Bridge.saveSettings(State.settings);
         Sound.play("pop");
         this.engine.triggerEmote("proud");
+        State.notify();
+      },
+      choosePillColor: (hex) => {
+        const t = State.focusTask;
+        const def = t && pillDefinition(t.id);
+        if (!t || !def) return;
+        State.settings.pillColors = withPillColor(State.settings.pillColors, t.id, hex, def.color);
+        t.color = State.settings.pillColors[t.id] ?? def.color;
+        void Bridge.saveSettings(State.settings);
+        Sound.play("pop");
+        State.notify();
+      },
+      chooseTint: (hex) => {
+        const id = State.focusId ?? State.mainPillId;
+        State.settings.pillWardrobe = withPillWear(State.settings.pillWardrobe, id, { tint: hex });
+        void Bridge.saveSettings(State.settings);
+        Sound.play("pop");
         State.notify();
       },
       previewOutfit: (outfit) => {
@@ -578,7 +614,7 @@ export class Island {
     State.droppedFile = { name, path };
     State.promptContext = { kind: "file", name, path };
     State.chatHistory = [];
-    void Bridge.chatReset();
+    void Bridge.chatReset(State.chatPill);
 
     UploadSeq.performDrop(State.uploadDuration);
     this.uploadTens = 0;
@@ -1091,10 +1127,14 @@ export class Island {
     // the wardrobe is open (BotCanvasView.showOutfit, macOS).
     // In the wardrobe the hovered outfit swaps in at once, without the drop-in.
     const inWardrobe = State.mode === "expanded" && State.view === "wardrobe";
-    const mainFocused = State.focusId == null || State.focusId === State.mainPillId;
-    const showOutfit = mainFocused || State.mode !== "expanded" || inWardrobe;
-    const outfit = State.wardrobePreview ?? this.seasons.get(parseOutfit(State.settings.mochiOutfit));
-    this.engine.setOutfit(showOutfit ? outfit : "none", !inWardrobe);
+    // Each pill has its own clothes (wardrobe tab); a pill with none of its own wears nothing,
+    // the main pill the global outfit.
+    const wear = pillWear(
+      State.settings.pillWardrobe, State.focusId ?? State.mainPillId, State.mainPillId, State.settings.mochiOutfit,
+    );
+    const outfit = State.wardrobePreview ?? this.seasons.get(wear.outfit);
+    this.engine.outfitTint = wear.tint;
+    this.engine.setOutfit(outfit, !inWardrobe);
     // Dances while music plays: always in the compact island, expanded only on
     // the music pill's card (BotCanvasView, macOS). Asked every frame.
     this.engine.setDancing(islandDances({

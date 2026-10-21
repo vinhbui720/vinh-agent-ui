@@ -946,8 +946,8 @@ let scratch: HTMLCanvasElement | null = null;
  * Draws `fn` at `alpha` as one layer, so overlapping parts don't show through
  * each other while an outfit fades (SwiftUI's drawLayer on macOS).
  */
-function withLayer(ctx: Ctx, alpha: number, fn: (c: Ctx) => void) {
-  if (alpha >= 0.999) {
+function withLayer(ctx: Ctx, alpha: number, fn: (c: Ctx) => void, tint?: string | null) {
+  if (alpha >= 0.999 && !tint) {
     ctx.save();
     fn(ctx);
     ctx.restore();
@@ -968,6 +968,16 @@ function withLayer(ctx: Ctx, alpha: number, fn: (c: Ctx) => void) {
   s.save();
   fn(s);
   s.restore();
+  if (tint) {
+    // Colour over what was drawn, nothing else: shading stays, the clothes take the tint.
+    s.save();
+    s.setTransform(1, 0, 0, 1, 0, 0);
+    s.globalCompositeOperation = "source-atop";
+    s.globalAlpha = 0.6;
+    s.fillStyle = tint;
+    s.fillRect(0, 0, W, Hh);
+    s.restore();
+  }
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha *= alpha;
@@ -984,6 +994,8 @@ export interface OutfitState {
   presence: number;
   /** Mochi's mailbox morph: outfits fade away as he turns into a box. */
   morph: number;
+  /** "#RRGGBB" the outfit is coloured with; none keeps its own colours. */
+  tint?: string | null;
 }
 
 function faceTurnedAway(H: Head): boolean {
@@ -1018,7 +1030,7 @@ export function drawOutfitBehind(ctx: Ctx, outfit: Outfit, H: Head, st: OutfitSt
   const body = bodyOutline(H.rx, H.ry);
 
   if (ON_FACE.has(outfit)) {
-    if (faceTurnedAway(H)) withLayer(ctx, alpha, (l) => drawFace(l, outfit, H, body, simple));
+    if (faceTurnedAway(H)) withLayer(ctx, alpha, (l) => drawFace(l, outfit, H, body, simple), st.tint);
     return;
   }
   const posP = Ease.back(st.presence);
@@ -1030,7 +1042,7 @@ export function drawOutfitBehind(ctx: Ctx, outfit: Outfit, H: Head, st: OutfitSt
     if (outfit === "bunnyEars") bunnyEars(l, H);
     else if (outfit === "crown") crownPart(l, H, -1, simple);
     else if (outfit === "witchHat") witchHatBack(l, H);
-  });
+  }, st.tint);
   ctx.restore();
 }
 
@@ -1067,7 +1079,7 @@ export function drawOutfitFront(ctx: Ctx, outfit: Outfit, H: Head, st: OutfitSta
       case "witchHat": witchHatFront(l, H, body); break;
       default: drawFace(l, outfit, H, body, simple);
     }
-  });
+  }, st.tint);
   ctx.restore();
 }
 

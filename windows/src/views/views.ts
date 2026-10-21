@@ -18,6 +18,7 @@ import {
 } from "./usage";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
+import { selectOpenCodeSession } from "../island/opencode";
 import { Bridge } from "../core/bridge";
 import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
@@ -54,6 +55,10 @@ export interface ViewActions {
   chooseOutfit(selection: OutfitSelection): void;
   /** Wardrobe hover: shows an outfit on Mochi without keeping it; null ends it. */
   previewOutfit(outfit: Outfit | null): void;
+  /** Wardrobe colour: tints the focused pill's outfit; null clears it. */
+  chooseTint(hex: string | null): void;
+  /** Wardrobe: the focused pill's own colour (Settings → Active pills does the same); null = catalog colour. */
+  choosePillColor(hex: string | null): void;
 }
 
 export interface ViewHost {
@@ -112,6 +117,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const tabChat = h("button", { class: "tab", title: tl("Ask"), onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
   const tabDrop = h("button", { class: "tab", title: tl("Drop"), onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
+  const tabWear = h("button", { class: "tab", title: tl("Wardrobe"), onclick: () => go("wardrobe") }, svg(ICONS.shirt, 13));
+
   const gearBtn = h("button", { title: tl("Settings"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
   const soundBtn = h("button", { title: tl("Mute"), onclick: () => actions.toggleSound() }, svg(ICONS.speakerOn, 14));
   // Plan usage pills (off by default): before the gear, Claude first, as on the Mac.
@@ -128,7 +135,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const el = h(
     "div",
     { id: "header" },
-    h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
+    h("div", { class: "tabs" }, tabHome, tabChat, tabDrop, tabWear),
     h("div", { class: "header-actions" }, planPills, gearBtn, soundBtn),
   );
   const headerActions = el.lastElementChild as HTMLElement;
@@ -140,6 +147,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
       tabHome.classList.toggle("on", v === "overview" || v === "empty");
       tabChat.classList.toggle("on", v === "prompt");
       tabDrop.classList.toggle("on", v === "upload");
+      tabWear.classList.toggle("on", v === "wardrobe");
       gearBtn.classList.toggle("on", v === "settings");
       clear(gearBtn);
       gearBtn.append(svg(v === "settings" ? ICONS.gearFill : ICONS.gear, 14));
@@ -355,6 +363,21 @@ function buildOverview(actions: ViewActions): ViewHost {
             class: "count",
             text: `${Math.min(task.stepIndex + 1, task.steps.length)}/${task.steps.length}`,
           }));
+        }
+        // OpenCode: one small tag per running session, the selected one lit.
+        if (task.id === "agent_opencode") {
+          const running = State.opencode.sessions;
+          if (running.length) {
+            const tags = h("div", { class: "oc-home-tags" });
+            for (const s of running) {
+              tags.append(h("span", {
+                class: "oc-home-tag", title: s.directory,
+                onclick: () => selectOpenCodeSession(s.id),
+                style: s.id === State.opencode.selected ? "color:var(--ink)" : "",
+              }, h("i", { class: "oc-dot run" }), h("span", { text: s.title || s.directory.split("/").pop() || s.id })));
+            }
+            who.append(tags);
+          }
         }
         ticker.sync(task);
       } else if (task && task.id === SPOTIFY_ID) {
@@ -733,7 +756,8 @@ function buildSettings(actions: ViewActions): ViewHost {
     oninput: (e: Event) => actions.setVolume(Number((e.target as HTMLInputElement).value)),
   }) as HTMLInputElement;
   const autoLabel = h("span", {});
-  const segButtons = [10, 15, 30].map((s) =>
+  const AUTO_CLOSE_CHOICES = [0.5, 1, 2];
+  const segButtons = AUTO_CLOSE_CHOICES.map((s) =>
     h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
   );
   const claudeBadge = h("span", { class: "status-badge" });
@@ -775,8 +799,8 @@ function buildSettings(actions: ViewActions): ViewHost {
       soundSwitch.classList.toggle("on", s.soundEnabled);
       volume.value = String(s.soundVolume);
       volume.style.opacity = s.soundEnabled ? "1" : "0.4";
-      autoLabel.textContent = t("Auto-close · {seconds}s", { seconds: Math.round(s.autoCloseInterval) });
-      segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [10, 15, 30][i]));
+      autoLabel.textContent = t("Auto-close · {seconds}s", { seconds: s.autoCloseInterval });
+      segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === AUTO_CLOSE_CHOICES[i]));
       clear(claudeBadge);
       claudeBadge.append(
         dot(s.hooksInstalled ? "#22C55E" : "#F4505E", 6),

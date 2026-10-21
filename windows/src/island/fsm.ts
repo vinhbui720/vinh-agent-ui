@@ -48,7 +48,7 @@ export class IslandStateMachine {
    */
   homeCollapseDueAt: number | null = null;
 
-  private homeDelay = 15;
+  private homeDelay = 1;
   private byHover = false;
   private petitHide: number | null = null;
   private homeCollapse: number | null = null;

@@ -129,3 +129,13 @@ test("the per-frame season lookup follows the calendar day", () => {
   assert.equal(cache.get("bow", day(2026, 10, 1)), "bow");
   assert.equal(cache.get("auto", day(2026, 12, 2)), "santaHat");
 });
+
+test("each pill has its own clothes; the main pill falls back to the global outfit", async () => {
+  const { pillWear, withPillWear } = await import("../src/mochi/wardrobe.ts");
+  assert.deepEqual(pillWear({}, "a", "m", "crown"), { outfit: "none", tint: null });
+  assert.deepEqual(pillWear({}, "m", "m", "crown"), { outfit: "crown", tint: null });
+  const w = withPillWear({}, "a", { outfit: "bow", tint: "#f4505e" });
+  assert.deepEqual(pillWear(w, "a", "m", "none"), { outfit: "bow", tint: "#F4505E" });
+  assert.deepEqual(pillWear({ a: { outfit: "nope", tint: "red" } }, "a", "m", "x"), { outfit: "none", tint: null });
+  assert.deepEqual(withPillWear(w, "a", { outfit: "", tint: null }), {});
+});
