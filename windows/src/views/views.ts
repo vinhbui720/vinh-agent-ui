@@ -9,6 +9,7 @@ import { State, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
 import { buildPrompt } from "./chat";
+import { isSpeaking, stopSpeech } from "../island/opencode";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
 import { highlightRow, listRows, openRow } from "./github";
@@ -18,7 +19,6 @@ import {
 } from "./usage";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
-import { selectOpenCodeSession } from "../island/opencode";
 import { Bridge } from "../core/bridge";
 import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
@@ -41,7 +41,7 @@ export interface ViewActions {
   /** The ↗ button: opens whatever the focused pill points at. */
   openTarget(): void;
   openUrl(url: string): void;
-  decide(d: "allow" | "deny"): void;
+  decide(d: "allow" | "deny" | "always"): void;
   /** Answers the question Claude Code asked: question text → chosen label. */
   answer(answers: Record<string, string | string[]>): void;
   /** Hands the pending request back to the terminal. */
@@ -358,26 +358,18 @@ function buildOverview(actions: ViewActions): ViewHost {
           h("span", { class: "name", text: task.name }),
           h("span", { class: "tool", text: t(sessionSubtitle(task.id)) }),
         );
+        // OpenCode is being read aloud: one click silences it (and the rest of that answer).
+        if (task.id === "agent_opencode" && isSpeaking()) {
+          who.append(h("button", {
+            class: "oc-stop oc-plain oc-quiet", title: tl("Stop reading aloud"),
+            onclick: () => stopSpeech(),
+          }, svg(ICONS.speakerSlash, 10)));
+        }
         if (task.steps.length > 1) {
           who.append(h("span", {
             class: "count",
             text: `${Math.min(task.stepIndex + 1, task.steps.length)}/${task.steps.length}`,
           }));
-        }
-        // OpenCode: one small tag per running session, the selected one lit.
-        if (task.id === "agent_opencode") {
-          const running = State.opencode.sessions;
-          if (running.length) {
-            const tags = h("div", { class: "oc-home-tags" });
-            for (const s of running) {
-              tags.append(h("span", {
-                class: "oc-home-tag", title: s.directory,
-                onclick: () => selectOpenCodeSession(s.id),
-                style: s.id === State.opencode.selected ? "color:var(--ink)" : "",
-              }, h("i", { class: "oc-dot run" }), h("span", { text: s.title || s.directory.split("/").pop() || s.id })));
-            }
-            who.append(tags);
-          }
         }
         ticker.sync(task);
       } else if (task && task.id === SPOTIFY_ID) {
@@ -413,7 +405,7 @@ function buildOverview(actions: ViewActions): ViewHost {
       highlightRow(rows, State.cardSelection, State.cardSelection !== shownSelection);
       shownSelection = State.cardSelection;
 
-      const others = State.otherTasks.slice(0, 4);
+      const others = State.otherTasks; // more than 4 (OpenCode sessions): the grid scrolls
       const pillKey = others.map((t) => `${t.id}:${t.color}:${t.pillBadge ?? ""}`).join("|");
       if (pillKey !== pillIds) {
         pillIds = pillKey;
@@ -538,7 +530,7 @@ function buildApproval(actions: ViewActions): ViewHost {
   // moments after a new request appears are ignored.
   let shownFor: string | null = null;
   let shownAt = 0;
-  const guarded = (d: "allow" | "deny") => () => {
+  const guarded = (d: "allow" | "deny" | "always") => () => {
     if (performance.now() - shownAt < CLICK_GUARD_MS) return;
     actions.decide(d);
   };
@@ -559,11 +551,14 @@ function buildApproval(actions: ViewActions): ViewHost {
       // Two buttons, built once. Rebuilding them between a mouse-down and a
       // mouse-up would swallow the click, and there is nothing left to vary:
       // "Always" is gone until the remembered-rules list exists to back it.
-      if (rowKey === "built") return;
-      rowKey = "built";
+      // OpenCode keeps its own rules, so only its requests get "Always".
+      const key = State.pendingApproval?.requestId.startsWith("oc:") ? "oc" : "built";
+      if (rowKey === key) return;
+      rowKey = key;
       clear(row);
       row.append(
         btn(tl("Deny"), "secondary", guarded("deny"), "N"),
+        ...(key === "oc" ? [btn(tl("Always"), "secondary", guarded("always"))] : []),
         btn(tl("Allow"), "primary", guarded("allow"), "Y"),
       );
     },

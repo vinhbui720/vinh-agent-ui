@@ -149,8 +149,57 @@ pub async fn create(directory: &str) -> Result<String, String> {
     v["data"]["id"].as_str().map(String::from).ok_or_else(|| "OpenCode gave no session".to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Listing {
+    /// The folder the entries belong to (the typed path, or its parent when it ends mid-name).
+    pub dir: String,
+    pub parent: Option<String>,
+    pub home: String,
+    /// Sub-folders of `dir`, filtered by what was typed after the last `/`.
+    pub dirs: Vec<String>,
+}
+
+/// Sub-folders for the folder picker. `~` and empty mean home; a path that is not a folder lists its
+/// parent filtered by the unfinished last segment. Names only, never file contents.
+pub fn list_dirs(typed: &str) -> Listing {
+    let home = crate::platform::home_dir();
+    let typed = typed.trim();
+    let full = match typed {
+        "" | "~" => home.clone(),
+        t if t.starts_with("~/") => home.join(&t[2..]),
+        t => std::path::PathBuf::from(t),
+    };
+    let (dir, prefix) = if full.is_dir() {
+        (full, String::new())
+    } else {
+        let prefix = full.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        (full.parent().map(|p| p.to_path_buf()).unwrap_or(home.clone()), prefix)
+    };
+    let dir = if dir.is_absolute() && dir.is_dir() { dir } else { home.clone() };
+    let mut dirs: Vec<String> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.to_lowercase().starts_with(&prefix.to_lowercase()))
+        .filter(|n| !n.starts_with('.') || prefix.starts_with('.'))
+        .collect();
+    dirs.sort_by_key(|n| n.to_lowercase());
+    dirs.truncate(200);
+    Listing {
+        parent: dir.parent().map(|p| p.to_string_lossy().to_string()),
+        dir: dir.to_string_lossy().to_string(),
+        home: home.to_string_lossy().to_string(),
+        dirs,
+    }
+}
+
 /// The sessions of one folder, newest first, running or not: what can be resumed.
 pub async fn history(directory: &str) -> Result<Vec<Session>, String> {
+    let home = crate::platform::home_dir().to_string_lossy().to_string();
+    let directory = if directory.is_empty() { home.as_str() } else { directory };
     let active = call(reqwest::Method::GET, "/api/session/active", None).await?;
     let all = call(reqwest::Method::GET, "/api/session", None).await?;
     let mut out: Vec<(u64, Session)> = vec![];

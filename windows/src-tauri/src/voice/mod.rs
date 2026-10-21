@@ -246,7 +246,7 @@ fn speak(app: &AppHandle, text: &str) {
         std::thread::sleep(Duration::from_millis(1500));
         return;
     }
-    let audio = if output == "elevenlabs" { elevenlabs(text, &gender).map(|mp3| base64(&mp3)) } else { None };
+    let audio = if output == "elevenlabs" { elevenlabs(text, &gender, None).map(|mp3| base64(&mp3)) } else { None };
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::channel();
     pending().lock().unwrap().insert(id, tx);
@@ -300,18 +300,67 @@ pub async fn voice_say_native(text: String, lang: Option<String>) -> bool {
     .unwrap_or(false)
 }
 
+/// The keyring's key first, else `ELEVENLABS_API_KEY` from the environment (read only, never stored or logged).
+fn eleven_key() -> Option<String> {
+    crate::secrets::get("elevenlabs-api-key")
+        .or_else(|| std::env::var("ELEVENLABS_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))
+}
+
+/// "vi" for Vietnamese, "en" for English, None for anything else (not read aloud).
+pub fn tts_lang(text: &str) -> Option<&'static str> {
+    const VI: &str = "ăđơưạảãấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ";
+    let (mut letters, mut other) = (0usize, 0usize);
+    for c in text.chars().filter(|c| c.is_alphabetic()) {
+        letters += 1;
+        if VI.contains(c.to_lowercase().next().unwrap_or(c)) {
+            return Some("vi");
+        }
+        if !c.is_ascii() {
+            other += 1;
+        }
+    }
+    // Plain Latin text is English; a few accents (café) stay English, other scripts are skipped.
+    (letters > 0 && other * 10 <= letters).then_some("en")
+}
+
+static HTTP: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+static VOICES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+
+/// An OpenCode sentence, spoken: ElevenLabs' MP3 (base64) in the voice chosen in Voice settings.
+/// None: not Vietnamese or English, no key, or ElevenLabs failed (nothing is read then).
+#[tauri::command]
+pub async fn opencode_tts(app: AppHandle, text: String) -> Option<String> {
+    let lang = tts_lang(&text)?;
+    let gender = crate::flow::get(&app).map(|f| f.store.lock().unwrap().prefs.voice_gender.clone()).unwrap_or_else(|| "female".into());
+    let text: String = text.chars().take(1500).collect();
+    tauri::async_runtime::spawn_blocking(move || elevenlabs(&text, &gender, Some(lang)).map(|mp3| base64(&mp3))).await.ok().flatten()
+}
+
 /// ElevenLabs' MP3 for `text`, with the user's key; None and the system voice speaks.
-fn elevenlabs(text: &str, gender: &str) -> Option<Vec<u8>> {
-    let key = crate::secrets::get("elevenlabs-api-key")?;
+/// `lang` ("vi", "en") pins the language of the multilingual model; the voice id is looked up once.
+fn elevenlabs(text: &str, gender: &str, lang: Option<&str>) -> Option<Vec<u8>> {
+    let key = eleven_key()?;
+    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("http client")).clone();
     tauri::async_runtime::block_on(async {
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().ok()?;
-        let voices: Value = client.get("https://api.elevenlabs.io/v1/voices").header("xi-api-key", &key).send().await.ok()?.json().await.ok()?;
-        let voice = pick_voice(voices["voices"].as_array()?, gender)?;
+        let cached = VOICES.get_or_init(Default::default).lock().unwrap().get(gender).cloned();
+        let voice = match cached {
+            Some(v) => v,
+            None => {
+                let voices: Value = client.get("https://api.elevenlabs.io/v1/voices").header("xi-api-key", &key).send().await.ok()?.json().await.ok()?;
+                let v = pick_voice(voices["voices"].as_array()?, gender)?;
+                VOICES.get_or_init(Default::default).lock().unwrap().insert(gender.to_string(), v.clone());
+                v
+            }
+        };
+        let mut body = json!({ "text": text, "model_id": "eleven_flash_v2_5" });
+        if let Some(l) = lang {
+            body["language_code"] = json!(l);
+        }
         let response = client
-            .post(format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128"))
+            .post(format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_22050_32"))
             .header("xi-api-key", &key)
             .header("accept", "audio/mpeg")
-            .json(&json!({ "text": text, "model_id": "eleven_flash_v2_5" }))
+            .json(&body)
             .send()
             .await
             .ok()?;
@@ -562,5 +611,18 @@ mod with_models {
         }
         println!("{heard:?}");
         assert!(heard.iter().any(|h| h.as_deref().is_some_and(|q| !q.is_empty())));
+    }
+}
+
+#[cfg(test)]
+mod tts_lang_tests {
+    use super::tts_lang;
+    #[test]
+    fn only_vietnamese_and_english() {
+        assert_eq!(tts_lang("Xin chào, tôi là trợ lý."), Some("vi"));
+        assert_eq!(tts_lang("Done. All tests pass."), Some("en"));
+        assert_eq!(tts_lang("Un café, s'il vous plaît, mon ami"), Some("en"));
+        assert_eq!(tts_lang("你好,世界"), None);
+        assert_eq!(tts_lang("12345"), None);
     }
 }

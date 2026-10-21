@@ -569,6 +569,10 @@ async fn opencode_create(directory: String) -> Result<String, String> {
     opencode::create(&directory).await
 }
 #[tauri::command]
+fn opencode_ls(path: String) -> opencode::Listing {
+    opencode::list_dirs(&path)
+}
+#[tauri::command]
 async fn opencode_history(directory: String) -> Result<Vec<opencode::Session>, String> {
     opencode::history(&directory).await
 }
@@ -882,6 +886,8 @@ pub fn run() {
             opencode_sessions,
             opencode_create,
             opencode_history,
+            opencode_ls,
+            voice::opencode_tts,
             opencode_messages,
             opencode_send,
             opencode_interrupt,

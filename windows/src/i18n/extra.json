@@ -5259,6 +5259,97 @@
    "id": "Tidak ada sesi di sini",
    "de": "Keine Sitzungen hier",
    "tr": "Burada oturum yok"
+  },
+  "Up": {
+   "zh-Hans": "上一级",
+   "hi": "ऊपर",
+   "es": "Subir",
+   "ar": "أعلى",
+   "fr": "Dossier parent",
+   "bn": "উপরে",
+   "pt-BR": "Subir",
+   "ru": "Выше",
+   "id": "Naik",
+   "de": "Hoch",
+   "tr": "Yukarı"
+  },
+  "Home": {
+   "zh-Hans": "主目录",
+   "hi": "होम",
+   "es": "Inicio",
+   "ar": "الرئيسية",
+   "fr": "Accueil",
+   "bn": "হোম",
+   "pt-BR": "Início",
+   "ru": "Домой",
+   "id": "Beranda",
+   "de": "Home",
+   "tr": "Ana dizin"
+  },
+  "New session here": {
+   "zh-Hans": "在此新建会话",
+   "hi": "यहाँ नया सत्र",
+   "es": "Nueva sesión aquí",
+   "ar": "جلسة جديدة هنا",
+   "fr": "Nouvelle session ici",
+   "bn": "এখানে নতুন সেশন",
+   "pt-BR": "Nova sessão aqui",
+   "ru": "Новая сессия здесь",
+   "id": "Sesi baru di sini",
+   "de": "Neue Sitzung hier",
+   "tr": "Burada yeni oturum"
+  },
+  "Pick or create a session first": {
+   "zh-Hans": "请先选择或新建会话",
+   "hi": "पहले सत्र चुनें या बनाएँ",
+   "es": "Elige o crea una sesión primero",
+   "ar": "اختر جلسة أو أنشئ واحدة أولاً",
+   "fr": "Choisissez ou créez d'abord une session",
+   "bn": "আগে একটি সেশন বেছে নিন বা তৈরি করুন",
+   "pt-BR": "Escolha ou crie uma sessão primeiro",
+   "ru": "Сначала выберите или создайте сессию",
+   "id": "Pilih atau buat sesi dulu",
+   "de": "Wähle oder erstelle zuerst eine Sitzung",
+   "tr": "Önce bir oturum seçin veya oluşturun"
+  },
+  "Mute spoken answers": {
+   "zh-Hans": "关闭语音朗读",
+   "hi": "बोले गए उत्तर बंद करें",
+   "es": "Silenciar respuestas habladas",
+   "ar": "كتم الإجابات المنطوقة",
+   "fr": "Couper les réponses vocales",
+   "bn": "বলা উত্তর বন্ধ করুন",
+   "pt-BR": "Silenciar respostas faladas",
+   "ru": "Отключить озвучку ответов",
+   "id": "Matikan jawaban suara",
+   "de": "Gesprochene Antworten stummschalten",
+   "tr": "Sesli yanıtları kapat"
+  },
+  "Read answers aloud": {
+   "zh-Hans": "朗读回答",
+   "hi": "उत्तर ज़ोर से पढ़ें",
+   "es": "Leer respuestas en voz alta",
+   "ar": "قراءة الإجابات بصوت عالٍ",
+   "fr": "Lire les réponses à voix haute",
+   "bn": "উত্তর জোরে পড়ুন",
+   "pt-BR": "Ler respostas em voz alta",
+   "ru": "Озвучивать ответы",
+   "id": "Bacakan jawaban",
+   "de": "Antworten vorlesen",
+   "tr": "Yanıtları sesli oku"
+  },
+  "Stop reading aloud": {
+   "zh-Hans": "停止朗读",
+   "hi": "पढ़ना बंद करें",
+   "es": "Dejar de leer en voz alta",
+   "ar": "إيقاف القراءة بصوت عالٍ",
+   "fr": "Arrêter la lecture à voix haute",
+   "bn": "জোরে পড়া বন্ধ করুন",
+   "pt-BR": "Parar leitura em voz alta",
+   "ru": "Остановить озвучку",
+   "id": "Hentikan pembacaan",
+   "de": "Vorlesen beenden",
+   "tr": "Sesli okumayı durdur"
   }
  }
 }

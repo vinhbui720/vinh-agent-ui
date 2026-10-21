@@ -235,7 +235,7 @@ class AppState {
   chats: Record<string, ChatMessage[]> = {};
   /** OpenCode v2 (island/opencode.ts): its running sessions, the one shown, requests waiting. */
   opencode: { sessions: OpenCodeSession[]; pending: OpenCodePermission[]; selected: string | null; error: string; lines: string[]; directory: string; panel: boolean } =
-    { sessions: [], pending: [], selected: null, error: "", lines: [], directory: localStorage.getItem("ocDir") ?? "", panel: false };
+    { sessions: [], pending: [], selected: localStorage.getItem("ocSel"), error: "", lines: [], directory: localStorage.getItem("ocDir") ?? "", panel: false };
   get chatPill(): string {
     return this.focusId ?? this.mainPillId;
   }

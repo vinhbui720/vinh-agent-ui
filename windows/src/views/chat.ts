@@ -16,7 +16,7 @@ import {
 import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
 import type { ViewHost } from "./views";
-import { OPENCODE_PILL, newOpenCodeSession, resumeOpenCodeSession, selectOpenCodeSession, sessionOf, setOpenCodeDirectory } from "../island/opencode";
+import { OPENCODE_PILL, newOpenCodeSession, setSpeech, speechOn, resumeOpenCodeSession, selectOpenCodeSession, sessionOf, setOpenCodeDirectory } from "../island/opencode";
 import { N_, t, tl } from "../i18n/i18n";
 
 const STRINGS = {
@@ -37,6 +37,13 @@ const STRINGS = {
   ocNew: N_("New session"),
   ocFolder: N_("Folder and history"),
   ocPath: N_("Folder path, then Enter"),
+  ocUp: N_("Up"),
+  ocMute: N_("Mute spoken answers"),
+  ocSpeak: N_("Read answers aloud"),
+  ocPick: N_("Pick or create a session first"),
+  ocHome: N_("Home"),
+  ocNewHere: N_("New session here"),
+  ocLoading: N_("Loading…"),
   ocNoHistory: N_("No sessions here"),
   ocDeny: N_("Deny"),
 };
@@ -260,8 +267,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     ocKey = "";
     void drawPanel();
     State.notify();
-  } }, svg(ICONS.house, 10));
-  const ocRow = h("div", { class: "oc-row" }, ocTabs, ocNew, ocDir, ocStop);
+  } }, svg(ICONS.folder, 10));
+  const ocVoice = h("button", { class: "oc-stop oc-plain", onclick: () => setSpeech(!speechOn()) }, svg(ICONS.speaker, 10));
+  const ocRow = h("div", { class: "oc-row" }, ocTabs, ocNew, ocDir, ocVoice, ocStop);
   const ocPanel = h("div", { class: "oc-panel" });
   async function drawPanel() {
     clear(ocPanel);
@@ -269,21 +277,54 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     if (!State.opencode.panel) return;
     const path = h("input", { type: "text", class: "oc-path", spellcheck: "false", value: State.opencode.directory,
       placeholder: t(STRINGS.ocPath) }) as HTMLInputElement;
+    const dirs = h("div", { class: "oc-hist" });
     const list = h("div", { class: "oc-hist" });
-    const load = async () => {
-      clear(list);
+    const up = h("button", { class: "oc-tab", text: t(STRINGS.ocUp) });
+    const home = h("button", { class: "oc-tab", text: t(STRINGS.ocHome) });
+    const here = h("button", { class: "oc-tab on", text: t(STRINGS.ocNewHere), onclick: () => {
       setOpenCodeDirectory(path.value.trim());
-      try {
-        for (const s of await Bridge.opencodeHistory(path.value.trim())) {
-          list.append(h("button", { class: "oc-tab", title: s.directory, onclick: () => resumeOpenCodeSession(s.id) },
-            h("i", { class: s.running ? "oc-dot run" : "oc-dot" }), h("span", { text: s.title || s.id })));
-        }
-        if (!list.firstChild) list.append(h("span", { class: "oc-note", text: t(STRINGS.ocNoHistory) }));
-      } catch { list.append(h("span", { class: "oc-note", text: t(STRINGS.ocNoHistory) })); }
+      void newOpenCodeSession().catch((err) => { clear(list); list.append(h("span", { class: "oc-note", text: String(err).replace(/^Error:\s*/, "") })); });
+    } });
+    let seq = 0;
+    const history = async (dir: string) => {
+      const mine = ++seq;
+      clear(list);
+      list.append(h("span", { class: "oc-note", text: t(STRINGS.ocLoading) }));
+      let rows: Awaited<ReturnType<typeof Bridge.opencodeHistory>> = [];
+      let failed = "";
+      try { rows = await Bridge.opencodeHistory(dir); } catch (err) { failed = String(err).replace(/^Error:\s*/, ""); }
+      if (mine !== seq) return; // a newer folder was picked meanwhile
+      clear(list);
+      for (const x of rows) {
+        list.append(h("button", { class: "oc-tab", title: x.directory, onclick: () => resumeOpenCodeSession(x.id) },
+          h("i", { class: x.running ? "oc-dot run" : "oc-dot" }), h("span", { text: x.title || x.id })));
+      }
+      if (failed) list.append(h("span", { class: "oc-note", text: failed }));
+      else if (!rows.length) list.append(h("span", { class: "oc-note", text: t(STRINGS.ocNoHistory) }));
     };
-    path.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") void load(); });
-    ocPanel.append(path, list);
-    if (path.value) void load();
+    // `go`: the typed text is a finished folder (Enter, click) and not still being typed.
+    const show = async (typed: string, go: boolean) => {
+      const ls = await Bridge.opencodeLs(typed).catch(() => null);
+      if (!ls) return;
+      clear(dirs);
+      const dive = (d: string) => () => { path.value = d; void show(d, true); };
+      up.onclick = ls.parent ? dive(ls.parent) : null;
+      up.style.display = ls.parent ? "" : "none";
+      home.onclick = dive(ls.home);
+      for (const n of ls.dirs) {
+        const full = ls.dir.replace(/\/$/, "") + "/" + n;
+        dirs.append(h("button", { class: "oc-tab", title: full, onclick: dive(full) }, svg(ICONS.folder, 9), h("span", { text: n })));
+      }
+      if (go) {
+        path.value = ls.dir;
+        setOpenCodeDirectory(ls.dir);
+        void history(ls.dir);
+      }
+    };
+    path.addEventListener("input", () => void show(path.value, false));
+    path.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") void show(path.value, true); });
+    ocPanel.append(path, h("div", { class: "oc-hist" }, up, home, here), dirs, list);
+    void show(path.value, true); // empty path: home
   }
   ocPanel.style.display = "none";
   const ocPerms = h("div", { class: "oc-perms" });
@@ -301,6 +342,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     modelRow.style.display = on ? "none" : "";
     if (!on) return;
     const oc = State.opencode;
+    ocVoice.title = t(speechOn() ? STRINGS.ocMute : STRINGS.ocSpeak);
+    ocVoice.style.opacity = speechOn() ? "1" : "0.45";
     const shown = sessionOf(State.chatPill);
     const cur = oc.sessions.find((s) => s.id === shown);
     const key = JSON.stringify([oc.sessions, shown, oc.pending, oc.error]);
@@ -311,6 +354,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     clear(ocTabs);
     if (!oc.sessions.length) {
       ocTabs.append(h("span", { class: "oc-note", text: t(oc.error ? STRINGS.ocDown : STRINGS.ocNone) }));
+      if (!oc.error) ocTabs.append(h("button", { class: "oc-tab on", text: t(STRINGS.ocNewHere), onclick: () => void newOpenCodeSession().catch(() => {}) }));
     }
     for (const s of oc.sessions) {
       const label = s.title || s.directory.split("/").pop() || s.id;
@@ -330,11 +374,12 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
         h("button", { class: "oc-btn", text: t(STRINGS.ocAlways), onclick: reply("always") }),
         h("button", { class: "oc-btn", text: t(STRINGS.ocDeny), onclick: reply("reject") })));
     }
-    input.placeholder = t(STRINGS.ocPlaceholder);
+    input.placeholder = t(shown ? STRINGS.ocPlaceholder : STRINGS.ocPick);
   }
   let renderedPill = "";
   // A local model answers token by token: where its text so far is shown.
   let live: HTMLElement | null = null;
+  let livePill = ""; // the pill the streamed text belongs to
 
   function drawModelButton() {
     const p = providerDef(State.settings.chatProvider);
@@ -351,7 +396,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   });
 
   void onEvent<string>("chat-delta", (text) => {
-    if (!sending || !text) return; // nothing visible yet: the dots stay
+    if (!sending || !text || State.chatPill !== livePill) return; // nothing visible yet: the dots stay
     if (!live) {
       live = h("div", { class: "reply" });
       log.querySelector(".typing")?.parentElement?.remove();
@@ -389,6 +434,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
     // The pill this turn belongs to: the answer lands there even if another pill is in front by then.
     const pill = State.chatPill;
+    livePill = pill;
     const history = State.chatHistory;
     history.push({ id: nextId++, role: "user", content: query });
     State.stateOverride = "thinking";
@@ -461,7 +507,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       drawModelButton();
 
       if (!ocActive()) input.placeholder = t(State.chatHistory.length === 0 ? STRINGS.placeholderFirst : STRINGS.placeholderNext);
-      input.disabled = sending;
+      input.disabled = sending || (ocActive() && !sessionOf(State.chatPill));
     },
     focus() {
       input.focus();

@@ -219,8 +219,8 @@ export class Island {
           // OpenCode request: "oc:<session>:<request>", answered through its API.
           const [, session, request] = req.requestId.split(":");
           answered.add(request);
-          void Bridge.opencodeReply(session, request, d === "deny" ? "reject" : "once").catch(() => {});
-        } else void Bridge.approvalDecision(req.requestId, d);
+          void Bridge.opencodeReply(session, request, d === "deny" ? "reject" : d === "always" ? "always" : "once").catch(() => {});
+        } else void Bridge.approvalDecision(req.requestId, d === "always" ? "allow" : d);
         this.closeApproval();
       },
       answer: (answers) => {
