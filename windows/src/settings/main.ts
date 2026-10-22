@@ -797,6 +797,8 @@ const INTEGRATIONS: IntegrationDef[] = [
     fields: [{ key: "calcom-api-key", label: N_("API key"), placeholder: "cal_…", secret: true }] },
   // Nothing to enter: Spotify is read from the OS (src-tauri/src/spotify.rs).
   { id: "integration_spotify", name: "Spotify", color: "#1DB954", fields: [] },
+  // Nothing to enter: whatever plays in the browser is read over MPRIS.
+  { id: "integration_youtube", name: "YouTube", color: "#FF0033", fields: [] },
 ];
 
 const MAX_ACTIVE = MAX_DECLARED;

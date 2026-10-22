@@ -4,6 +4,7 @@
 // (BotCanvasView, DesktopMochi.swift).
 
 import type { BotStateName, IslandMode, IslandViewName } from "./layout";
+import type { SpotifyAction } from "./bridge";
 
 export const SPOTIFY_ID = "integration_spotify";
 /** SpotifyController.green. */
@@ -119,3 +120,24 @@ export function islandDances(o: {
 export function desktopDances(music: boolean, state: BotStateName): boolean {
   return music && DANCE_STATES.has(state);
 }
+
+// ── Any MPRIS player the Spotify views can show (Spotify, YouTube) ──────────
+
+export const YOUTUBE_ID = "integration_youtube";
+
+export interface PlayerRef {
+  id: string;
+  /** The accent of the bar, the dot and the cover's note. */
+  color: string;
+  name: string;
+  state: SpotifyState;
+  artwork: { artUrl: string; dataUrl: string } | null;
+  control(action: SpotifyAction, value?: number): void;
+  open(): void;
+}
+
+/** What the YouTube pill follows: whichever browser plays (src-tauri/src/youtube.rs). */
+export const YouTube = {
+  state: { ...IDLE_SPOTIFY } as SpotifyState,
+  artwork: null as { artUrl: string; dataUrl: string } | null,
+};

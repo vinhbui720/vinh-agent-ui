@@ -23,8 +23,8 @@ import { Bridge } from "../core/bridge";
 import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
 import { buildUpdate } from "./update";
-import { buildSpotifyCard, buildSpotifyPill, type SpotifyPillHost } from "./spotify";
-import { SPOTIFY_ID } from "../core/spotify";
+import { SPOTIFY_PLAYER, YOUTUBE_PLAYER, buildSpotifyCard, buildSpotifyPill, type SpotifyPillHost } from "./spotify";
+import { SPOTIFY_ID, YOUTUBE_ID } from "../core/spotify";
 import type { Outfit, OutfitSelection } from "../mochi/wardrobe";
 import { language, t, tl, type Msg } from "../i18n/i18n";
 import type { ViewCommand } from "../island/shortcuts";
@@ -206,8 +206,11 @@ function buildOverview(actions: ViewActions): ViewHost {
   let planTimer: number | null = null;
   // Spotify's card and pill are kept and updated in place: the progress bar
   // runs on, and a slider being dragged must not be rebuilt under the pointer.
-  const spotifyCard = buildSpotifyCard();
+  const spotifyCard = buildSpotifyCard(SPOTIFY_PLAYER);
+  const youtubeCard = buildSpotifyCard(YOUTUBE_PLAYER);
   let spotifyPill: SpotifyPillHost | null = null;
+  let youtubePill: SpotifyPillHost | null = null;
+  let cardOf: "spotify" | "youtube" = "spotify";
 
   const el = h("div", { class: "view overview" },
     h("div", { class: "left" }, left),
@@ -372,15 +375,18 @@ function buildOverview(actions: ViewActions): ViewHost {
           }));
         }
         ticker.sync(task);
-      } else if (task && task.id === SPOTIFY_ID) {
+      } else if (task && (task.id === SPOTIFY_ID || task.id === YOUTUBE_ID)) {
         // Its own card for every state: playing, idle, not installed.
-        if (mode !== "spotify") {
+        const which = task.id === YOUTUBE_ID ? "youtube" : "spotify";
+        const card = which === "youtube" ? youtubeCard : spotifyCard;
+        if (mode !== "spotify" || cardOf !== which) {
           clear(leftBody);
-          leftBody.append(spotifyCard.el);
+          leftBody.append(card.el);
           mode = "spotify";
+          cardOf = which;
           cardKey = "";
         }
-        spotifyCard.sync();
+        card.sync();
       } else if (task) {
         const info = State.integrations[task.id];
         const key = [
@@ -411,10 +417,14 @@ function buildOverview(actions: ViewActions): ViewHost {
         pillIds = pillKey;
         clear(pills);
         spotifyPill = null;
+        youtubePill = null;
         for (const t of others) {
           if (t.id === SPOTIFY_ID) {
             spotifyPill = buildSpotifyPill(t, () => actions.setFocus(t.id));
             pills.append(spotifyPill.el);
+          } else if (t.id === YOUTUBE_ID) {
+            youtubePill = buildSpotifyPill(t, () => actions.setFocus(t.id), YOUTUBE_PLAYER);
+            pills.append(youtubePill.el);
           } else {
             pills.append(buildPill(t, actions));
           }
@@ -422,6 +432,7 @@ function buildOverview(actions: ViewActions): ViewHost {
         pruneMiniBots();
       }
       spotifyPill?.sync();
+      youtubePill?.sync();
     },
   };
 }

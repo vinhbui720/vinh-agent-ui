@@ -394,7 +394,7 @@ pub fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-fn data_url(bytes: &[u8]) -> Option<String> {
+pub(crate) fn data_url(bytes: &[u8]) -> Option<String> {
     let mime = sniff_image(bytes)?;
     Some(format!("data:{mime};base64,{}", crate::claude::base64_for(bytes)))
 }
@@ -404,6 +404,10 @@ fn data_url(bytes: &[u8]) -> Option<String> {
 struct Artwork {
     art_url: String,
     data_url: String,
+}
+
+pub(crate) fn now_ms_pub() -> f64 {
+    now_ms()
 }
 
 fn now_ms() -> f64 {
@@ -508,7 +512,7 @@ pub fn sync(app: &AppHandle, active_integrations: &[String]) {
 // ── Linux: MPRIS over D-Bus ───────────────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
-mod linux {
+pub(crate) mod linux {
     use super::*;
     use std::collections::VecDeque;
     use std::path::PathBuf;

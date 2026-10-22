@@ -431,6 +431,10 @@ export const Bridge = {
   spotifyOpen: () => call<boolean>("spotify_open"),
   /** Whether there is a Spotify to launch (Settings). */
   spotifyInstalled: () => call<boolean>("spotify_installed"),
+  // ── YouTube (src-tauri/src/youtube.rs): whichever browser plays, over MPRIS ──
+  youtubeRefresh: () => call<SpotifyState | null>("youtube_refresh"),
+  youtubeControl: (action: SpotifyAction, value?: number) =>
+    call<boolean>("youtube_control", { action, value: value ?? null }),
 
   // ── New versions (src-tauri/src/update.rs) ────────────────────────────────
   updateStatus: () => call<UpdateStatus>("update_status"),

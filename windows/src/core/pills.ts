@@ -138,6 +138,9 @@ export const PILL_CATALOG: readonly PillDefinition[] = [
   // (src-tauri/src/spotify.rs).
   { id: "integration_spotify", name: "Spotify", color: "#1DB954", category: "service",
     subtitle: N_("Integration"), source: "n8n", support: "yes", connect: none },
+  // Whatever plays in the browser, over MPRIS (src-tauri/src/youtube.rs).
+  { id: "integration_youtube", name: "YouTube", color: "#FF0033", category: "service",
+    subtitle: N_("Integration"), source: "n8n", support: "linux", connect: none },
 ];
 
 /** The always-on pill unless the user picks another workspace tool. */

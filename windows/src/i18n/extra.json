@@ -5351,5 +5351,18 @@
    "de": "Vorlesen beenden",
    "tr": "Sesli okumayı durdur"
   }
+ },
+ "Nothing playing": {
+  "zh-Hans": "没有播放",
+  "hi": "कुछ नहीं चल रहा",
+  "es": "Nada en reproducción",
+  "ar": "لا شيء قيد التشغيل",
+  "fr": "Rien en lecture",
+  "bn": "কিছু চলছে না",
+  "pt-BR": "Nada tocando",
+  "ru": "Ничего не играет",
+  "id": "Tidak ada yang diputar",
+  "de": "Nichts wird abgespielt",
+  "tr": "Hiçbir şey çalmıyor"
  }
 }
