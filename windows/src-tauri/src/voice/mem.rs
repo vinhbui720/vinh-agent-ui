@@ -93,7 +93,7 @@ pub async fn compact(all_today: bool) {
             continue;
         }
         let user: String = raw.chars().take(40_000).collect();
-        match crate::claude::complete(crate::flow::cleanup::MODEL, SYSTEM, &user, 700, Duration::from_secs(60)).await {
+        match crate::claude::complete(&std::env::var("COUCOU_MEM_MODEL").unwrap_or_else(|_| crate::flow::cleanup::MODEL.into()), SYSTEM, &user, 700, Duration::from_secs(60)).await {
             Ok(note) => {
                 let out = d.join(format!("{day}.md"));
                 let old = std::fs::read_to_string(&out).unwrap_or_default();

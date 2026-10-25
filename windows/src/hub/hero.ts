@@ -26,7 +26,7 @@ let frame: number | null = null;
 let last = performance.now();
 const start = performance.now();
 /** The Coucou window is on screen, as Rust last said (`setWindowShown`). */
-let windowShown = true;
+let windowShown = false;
 
 function running(): boolean {
   return shouldAnimate(live.size, document.visibilityState, windowShown);
