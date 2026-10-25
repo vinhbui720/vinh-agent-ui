@@ -24,7 +24,7 @@ export class IslandStateMachine {
   /** petit → hidden delay, seconds. */
   petitToHiddenDelay = 60;
   /** coucou → petit once the greeting animation ends (no hover). */
-  greetAutoCollapseDelay = 0.6;
+  greetAutoCollapseDelay = (window as any).__COUCOU_WEB__ ? 0 : 0.6;
   /** coucou → petit while the mouse hovers the greeting. */
   greetHoverCollapseDelay = 10;
   /** An alert waiting for an answer stays open, even when the mouse leaves. */
@@ -167,10 +167,15 @@ export class IslandStateMachine {
     }, this.petitToHiddenDelay * 1000);
   }
 
-  private scheduleHomeCollapse() {
+  /** An alert nobody hovers folds by itself after `seconds` (hovering it cancels, leaving restarts). */
+  autoFold(seconds: number) {
+    if (this.state === "home") this.scheduleHomeCollapse(seconds * 1000);
+  }
+
+  private scheduleHomeCollapse(override?: number) {
     this.clear("homeCollapse");
     if (this.pinned) return;
-    const ms = (this.byHover ? this.hoverCloseDelay : this.homeDelay) * 1000;
+    const ms = override ?? (this.byHover ? this.hoverCloseDelay : this.homeDelay) * 1000;
     this.homeCollapseDueAt = performance.now() + ms;
     this.homeCollapse = window.setTimeout(() => {
       this.homeCollapse = null;
@@ -205,6 +210,8 @@ export class IslandStateMachine {
   }
 
   private transition(next: FsmState) {
+    // Browser build: a stand-alone screen, never folded to the compact pill or hidden.
+    if ((next === "petit" || next === "hidden") && (window as any).__COUCOU_WEB__) next = "home";
     if (next === this.state) return;
     const from = this.state;
     this.state = next;

@@ -195,6 +195,7 @@ Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `sleeping` 
 | Bâille | fatigués puis fermés | étirement vertical, « z » | `yawn` | juste avant de passer en `sleeping` |
 | Content | arcs | joues | — | après une décision, un fichier avalé |
 | Agacé | fentes inclinées | halo violet `#A855F7` | `annoyed` | une claque |
+| Colère | fentes (provisoire) ; anim vectorielle `src/mochi/anims/angry.ts` | corps rouge `#F0646E`, vapeur | — | à définir (non câblé) |
 
 ## 8. Interactions avec le bonhomme
 

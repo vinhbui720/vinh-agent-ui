@@ -107,6 +107,8 @@ pub struct Prefs {
     pub voice_output: String,
     /// The ElevenLabs voice: "female" or "male".
     pub voice_gender: String,
+    /// What the dictation key and the pill's mic do: "call" (live voice call with the voice agent) or "local" (paste what you said).
+    pub dictation: String,
 }
 
 impl Default for Prefs {
@@ -124,6 +126,7 @@ impl Default for Prefs {
             voice: false,
             voice_output: "system".into(),
             voice_gender: "female".into(),
+            dictation: "call".into(),
         }
     }
 }

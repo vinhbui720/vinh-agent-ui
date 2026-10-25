@@ -184,6 +184,8 @@ export interface OpenCodePermission { id: string; sessionId: string; action: str
 
 export const Bridge = {
   boot: () => call<BootInfo>("boot"),
+  /** The island's state for the browser copy (phone_link/web.rs). */
+  webState: (snapshot: string) => call<void>("web_state", { snapshot }),
   /** The system's languages as the webview sees them, for Rust's own texts (i18n.rs). */
   setSystemLanguages: (languages: string[]) => call<void>("set_system_languages", { languages }),
 
@@ -346,7 +348,16 @@ export const Bridge = {
   opencodeCreate: (directory: string) => callOrThrow<string>("opencode_create", { directory }),
   opencodeHistory: (directory: string) => callOrThrow<OpenCodeSession[]>("opencode_history", { directory }),
   opencodeLs: (path: string) => callOrThrow<{ dir: string; parent: string | null; home: string; dirs: string[] }>("opencode_ls", { path }),
+  hermesAsk: (text: string, session: string | null) => callOrThrow<{ text: string; session: string }>("hermes_ask", { text, session }),
+  obsidianOverview: () => callOrThrow<{ vault: string; tasks: { file: string; line: number; text: string; done: boolean; day: string | null }[]; notes: string[] }>("obsidian_overview"),
+  focusStart: (minutes: number, targets: { kind: string; id: string; title: string }[]) => callOrThrow<void>("focus_start", { minutes, targets }),
+  focusStop: () => callOrThrow<void>("focus_stop"),
+  focusTargets: () => callOrThrow<{ tabs: { kind: string; id: string; title: string }[]; windows: { kind: string; id: string; title: string }[] }>("focus_targets"),
+  obsidianToggle: (file: string, line: number, text: string) => callOrThrow<void>("obsidian_toggle", { file, line, text }),
+  obsidianAdd: (text: string, day: string) => callOrThrow<void>("obsidian_add", { text, day }),
   opencodeTts: (text: string) => call<string | null>("opencode_tts", { text }),
+  voiceToken: async (who = "coucou", machine = "host") => (await call<string>("voice_token", { who, room: who === "coucou" ? "voice" : `voice-${who}`, machine })) ?? "",
+  localStt: (audio: string, mime: string, lang: string | null) => call<string>("local_stt", { audio, mime, lang }),
   opencodeMessages: (session: string) => callOrThrow<{ id: string; role: "user" | "assistant"; text: string }[]>("opencode_messages", { session }),
   opencodeSend: (session: string, text: string, delivery: "queue" | "steer") => callOrThrow<void>("opencode_send", { session, text, delivery }),
   opencodeInterrupt: (session: string) => callOrThrow<void>("opencode_interrupt", { session }),

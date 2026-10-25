@@ -11,6 +11,7 @@ import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
 import { buildPrompt } from "./chat";
 import { isSpeaking, stopSpeech } from "../island/opencode";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
+import { FOCUS_PILL, focusRev } from "./focus";
 import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
 import { highlightRow, listRows, openRow } from "./github";
 import { pillDefinition, sessionSubtitle } from "../core/pills";
@@ -22,6 +23,7 @@ import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
 import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
+import { buildPhoneCall } from "./phonecall";
 import { buildUpdate } from "./update";
 import { SPOTIFY_PLAYER, YOUTUBE_PLAYER, buildSpotifyCard, buildSpotifyPill, type SpotifyPillHost } from "./spotify";
 import { SPOTIFY_ID, YOUTUBE_ID } from "../core/spotify";
@@ -117,6 +119,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const tabChat = h("button", { class: "tab", title: tl("Ask"), onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
   const tabDrop = h("button", { class: "tab", title: tl("Drop"), onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
+  const tabCall = h("button", { class: "tab", title: tl("Call"), onclick: () => go("call") }, svg(ICONS.phone, 13));
   const tabWear = h("button", { class: "tab", title: tl("Wardrobe"), onclick: () => go("wardrobe") }, svg(ICONS.shirt, 13));
 
   const gearBtn = h("button", { title: tl("Settings"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
@@ -135,7 +138,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const el = h(
     "div",
     { id: "header" },
-    h("div", { class: "tabs" }, tabHome, tabChat, tabDrop, tabWear),
+    h("div", { class: "tabs" }, tabHome, tabChat, tabCall, tabDrop, tabWear),
     h("div", { class: "header-actions" }, planPills, gearBtn, soundBtn),
   );
   const headerActions = el.lastElementChild as HTMLElement;
@@ -146,6 +149,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
       const v = State.view;
       tabHome.classList.toggle("on", v === "overview" || v === "empty");
       tabChat.classList.toggle("on", v === "prompt");
+      tabCall.classList.toggle("on", v === "call");
       tabDrop.classList.toggle("on", v === "upload");
       tabWear.classList.toggle("on", v === "wardrobe");
       gearBtn.classList.toggle("on", v === "settings");
@@ -392,7 +396,7 @@ function buildOverview(actions: ViewActions): ViewHost {
         const key = [
           language(), task.id, task.color, detailOpen, task.state, task.steps.join("|"),
           info?.loaded, info?.error, info?.configured,
-          JSON.stringify(info?.data ?? {}),
+          task.id === FOCUS_PILL ? focusRev() : JSON.stringify(info?.data ?? {}),
         ].join("~");
         if (key !== cardKey) {
           cardKey = key;
@@ -460,6 +464,7 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
     canvas,
     h("span", { class: "lbl", text: label }),
   );
+  pill.dataset.id = task.id;
   pill.style.borderColor = `${task.color}24`;
   pill.addEventListener("mouseenter", () => {
     pill.style.background = `${task.color}2e`;
@@ -852,6 +857,7 @@ export function buildViews(
   map.set("choose", buildChoose(actions));
   map.set("recap", buildRecap(actions));
   map.set("wardrobe", buildWardrobe(actions));
+  map.set("call", buildPhoneCall(actions));
   map.set("update", buildUpdate());
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));

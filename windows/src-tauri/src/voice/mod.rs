@@ -13,6 +13,7 @@
 // speaks itself.
 
 pub mod brain;
+pub mod mem;
 pub mod wake;
 
 use std::collections::HashMap;
@@ -333,7 +334,68 @@ pub async fn opencode_tts(app: AppHandle, text: String) -> Option<String> {
     let lang = tts_lang(&text)?;
     let gender = crate::flow::get(&app).map(|f| f.store.lock().unwrap().prefs.voice_gender.clone()).unwrap_or_else(|| "female".into());
     let text: String = text.chars().take(1500).collect();
-    tauri::async_runtime::spawn_blocking(move || elevenlabs(&text, &gender, Some(lang)).map(|mp3| base64(&mp3))).await.ok().flatten()
+    tauri::async_runtime::spawn_blocking(move || {
+        local_tts(&text).or_else(|| elevenlabs(&text, &gender, Some(lang))).map(|a| base64(&a))
+    }).await.ok().flatten()
+}
+
+// ── Local voice server (voice-server/AGENT-TASK.md): OpenAI-style STT and TTS ─
+// URLs from env COUCOU_TTS_URL / COUCOU_STT_URL; the defaults are the SSH tunnel to the server
+// (coucou-voice-tunnel.service). Set one to "" to turn local voice off.
+fn voice_url(var: &str, default: &str) -> Option<String> {
+    let u = std::env::var(var).unwrap_or_else(|_| default.into());
+    (!u.is_empty()).then_some(u)
+}
+
+/// WAV bytes from the local TTS server (short timeout: ElevenLabs takes over when it is down).
+fn local_tts(text: &str) -> Option<Vec<u8>> {
+    let url = voice_url("COUCOU_TTS_URL", "http://127.0.0.1:18445")?;
+    let model = std::env::var("COUCOU_TTS_MODEL").unwrap_or_else(|_| "vieneu-v3-turbo".into());
+    let voice = std::env::var("COUCOU_TTS_VOICE").unwrap_or_else(|_| "Mỹ Duyên".into());
+    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("http client")).clone();
+    tauri::async_runtime::block_on(async {
+        let r = client
+            .post(format!("{url}/v1/audio/speech"))
+            .timeout(Duration::from_secs(20))
+            .json(&json!({ "model": model, "voice": voice, "input": text, "response_format": "wav" }))
+            .send()
+            .await
+            .ok()?;
+        r.status().is_success().then_some(())?;
+        let b = r.bytes().await.ok()?.to_vec();
+        b.starts_with(b"RIFF").then_some(b)
+    })
+}
+
+/// Dictation: base64 audio (any format ffmpeg-free: webm/wav/mp4) -> text, via the local STT server.
+/// `lang` "vi"/"en", or None to let Whisper detect.
+#[tauri::command]
+pub async fn local_stt(audio: String, mime: Option<String>, lang: Option<String>) -> Result<String, String> {
+    let url = voice_url("COUCOU_STT_URL", "http://127.0.0.1:18444").ok_or("local STT is off")?;
+    let model = std::env::var("COUCOU_STT_MODEL").unwrap_or_else(|_| "Systran/faster-whisper-large-v3".into());
+    let bytes = unbase64(&audio).ok_or("bad audio")?;
+    if bytes.len() > 20 * 1024 * 1024 { return Err("audio too long".into()); }
+    let mime = mime.unwrap_or_else(|| "audio/webm".into());
+    let ext = if mime.contains("mp4") { "mp4" } else if mime.contains("wav") { "wav" } else if mime.contains("ogg") { "ogg" } else { "webm" };
+    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("http client")).clone();
+    let part = reqwest::multipart::Part::bytes(bytes).file_name(format!("a.{ext}")).mime_str(&mime).map_err(|e| e.to_string())?;
+    let mut form = reqwest::multipart::Form::new().part("file", part).text("model", model);
+    if let Some(l) = lang.filter(|l| l == "vi" || l == "en") { form = form.text("language", l); }
+    let r = client.post(format!("{url}/v1/audio/transcriptions")).timeout(Duration::from_secs(60)).multipart(form).send().await.map_err(|e| e.to_string())?;
+    if !r.status().is_success() { return Err(format!("STT {}", r.status())); }
+    let v: Value = r.json().await.map_err(|e| e.to_string())?;
+    Ok(v["text"].as_str().unwrap_or("").trim().to_string())
+}
+
+fn unbase64(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in s.bytes().filter(|c| *c != b'=' && !c.is_ascii_whitespace()) {
+        let v = match c { b'A'..=b'Z' => c - b'A', b'a'..=b'z' => c - b'a' + 26, b'0'..=b'9' => c - b'0' + 52, b'+' => 62, b'/' => 63, _ => return None } as u32;
+        acc = acc << 6 | v; bits += 6;
+        if bits >= 8 { bits -= 8; out.push((acc >> bits) as u8); acc &= (1 << bits) - 1; }
+    }
+    Some(out)
 }
 
 /// ElevenLabs' MP3 for `text`, with the user's key; None and the system voice speaks.
@@ -625,4 +687,192 @@ mod tts_lang_tests {
         assert_eq!(tts_lang("你好,世界"), None);
         assert_eq!(tts_lang("12345"), None);
     }
+}
+
+/// Join token for the LiveKit voice agent (token endpoint on the server, via the SSH tunnel; the API secret stays there).
+#[tauri::command]
+pub async fn voice_token(who: Option<String>, room: Option<String>, machine: Option<String>) -> Result<String, String> {
+    let clean = |s: Option<String>, d: &str| -> String {
+        let c: String = s.unwrap_or_default().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(32).collect();
+        if c.is_empty() { d.into() } else { c }
+    };
+    let (who, room) = (clean(who, "coucou"), clean(room, "voice"));
+    let machine = if machine.as_deref() == Some("server") { "server" } else { "host" };
+    let url = voice_url("COUCOU_LK_TOKEN_URL", "http://127.0.0.1:7890").ok_or("voice call is off")?;
+    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("http client")).clone();
+    let r = client.get(format!("{url}/token?room={room}&who={who}&machine={machine}")).timeout(Duration::from_secs(5)).send().await.map_err(|e| e.to_string())?;
+    if !r.status().is_success() { return Err(format!("token {}", r.status())); }
+    let v: serde_json::Value = r.json().await.map_err(|e| e.to_string())?;
+    v["token"].as_str().map(String::from).ok_or_else(|| "no token".into())
+}
+
+/// The machines the call tab offers: this one, the one that runs the voice server (both can take a call), and the other
+/// computers of the tailnet (greyed: nothing to answer there yet). Read from Tailscale, nothing stored.
+#[tauri::command]
+pub async fn call_machines() -> Vec<Value> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let out = std::process::Command::new("tailscale").args(["status", "--json"]).output().ok().filter(|o| o.status.success());
+        let st: Value = out.and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or(Value::Null);
+        let server = std::env::var("COUCOU_VOICE_HOST").unwrap_or_else(|_| "vinhtp-1".into());
+        let me = st["Self"]["HostName"].as_str().map(String::from).or_else(|| std::fs::read_to_string("/etc/hostname").ok().map(|h| h.trim().to_string())).unwrap_or_default();
+        let mut v = vec![json!({ "id": "host", "name": me, "online": true, "here": true })];
+        let uid = st["Self"]["UserID"].clone();
+        if let Some(peers) = st["Peer"].as_object() {
+            let mut rest: Vec<Value> = Vec::new();
+            for p in peers.values() {
+                let name = p["HostName"].as_str().unwrap_or("");
+                let os = p["OS"].as_str().unwrap_or("").to_lowercase();
+                if name.is_empty() || p["UserID"] != uid || !["linux", "windows", "macos"].contains(&os.as_str()) { continue; }
+                let online = p["Online"].as_bool().unwrap_or(false);
+                if name == server { v.push(json!({ "id": "server", "name": name, "online": online, "here": false })); }
+                else { rest.push(json!({ "id": "", "name": name, "online": online, "here": false })); }
+            }
+            v.extend(rest);
+        }
+        v
+    }).await.unwrap_or_default()
+}
+
+// ── Live call: the pill window owns the WebRTC room; every window sends `call-cmd` and paints `call-state`. ──
+static CALL_LIVE: AtomicBool = AtomicBool::new(false);
+
+/// Any window: "toggle", "hear", "speak" or "mode".
+#[tauri::command]
+pub fn call_cmd(app: AppHandle, cmd: String) {
+    crate::log::line(format!("call-cmd {cmd}"));
+    // WebKitGTK has no WebRTC: the call runs in a hidden Chrome page (call.html) that listens on the web gateway.
+    let fresh = ensure_call_page();
+    std::thread::spawn(move || {
+        if fresh { std::thread::sleep(Duration::from_secs(3)); }
+        crate::phone_link::web::push("call-cmd", json!(cmd));
+    });
+}
+
+static CHROME: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+/// Starts the hidden Chrome that owns the room, unless it runs. True when it was just started.
+fn ensure_call_page() -> bool {
+    let mut c = CHROME.lock().unwrap();
+    if c.as_mut().is_some_and(|ch| ch.try_wait().ok().flatten().is_none()) { return false; }
+    let home = std::env::var("HOME").unwrap_or_default();
+    *c = std::process::Command::new("google-chrome")
+        .args([
+            "--headless=new", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required",
+            "--no-first-run", "--disable-gpu", "--remote-debugging-port=0",
+            &format!("--user-data-dir={home}/.local/share/coucou/call-chrome"),
+            "http://127.0.0.1:8766/call.html",
+        ])
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .spawn().ok();
+    true
+}
+
+pub fn call_toggle(app: &AppHandle) {
+    // One press can arrive twice (key repeat, key plus pill): a toggle within 1.2 s of the last one is dropped.
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    if last.is_some_and(|t| t.elapsed() < Duration::from_millis(1200)) { crate::log::line("call toggle ignored (too soon)"); return; }
+    *last = Some(Instant::now());
+    drop(last);
+    // Feedback at once: the pill listens (or goes away) before the room is even connected.
+    let on = !CALL_LIVE.load(Ordering::Relaxed);
+    CALL_LIVE.store(on, Ordering::Relaxed);
+    if !on { voice_cancel(); }
+    show(app, on.then(|| VoiceView { phase: "listening".into(), ..Default::default() }));
+    call_cmd(app.clone(), "toggle".into());
+}
+pub fn call_end(app: &AppHandle) {
+    if CALL_LIVE.load(Ordering::Relaxed) { call_toggle(app); }
+}
+
+/// The pill window reports the call; the island shows it as a conversation, the other windows paint their buttons.
+#[tauri::command]
+pub fn call_state(app: AppHandle, state: Value) {
+    let live = state["live"].as_bool().unwrap_or(false);
+    if CALL_LIVE.swap(live, Ordering::Relaxed) && !live && voice_cancel() > 0 {
+        crate::log::line("voice: call ended, jobs stopped");
+    }
+    let _ = app.emit("call-state", &state);
+    crate::log::line(format!("call state: live={live} heard={}ch answer={}ch err={}", state["heard"].as_str().map_or(0, str::len), state["answer"].as_str().map_or(0, str::len), state["error"].as_str().unwrap_or("")));
+    if let Some(e) = state["error"].as_str().filter(|e| !e.is_empty()) {
+        pill::announce(&app, "mic", "#FF5A5A", format!("{} {e}", crate::i18n::t("Voice call failed:")), None, 10);
+    }
+    let heard = state["heard"].as_str().unwrap_or("").to_string();
+    let answer = state["answer"].as_str().unwrap_or("").to_string();
+    let phase = if !answer.is_empty() { "speaking" } else { "listening" };
+    show(&app, live.then(|| VoiceView { phase: phase.into(), heard, answer }));
+}
+
+// ── The voice agent works on the machine that calls: its OpenCode, its model, its folders. ──
+const DENY: &str = r#"{"permission":{"bash":{"sudo *":"deny","su *":"deny","rm -rf *":"deny","git push *":"deny","git reset --hard*":"deny","git clean *":"deny","shutdown*":"deny","reboot*":"deny","systemctl *":"deny","kill *":"deny","pkill *":"deny","dd *":"deny","mkfs*":"deny"},"question":"deny"}}"#;
+
+/// Runs one task with this machine's OpenCode, from ~/voice-work (its opencode.json holds the deny list unless `allow_blocked`).
+/// Returns the tail of the output. Never logged.
+#[tauri::command]
+pub async fn voice_run(task: String, allow_blocked: Option<bool>) -> Result<String, String> {
+    let _one_at_a_time = JOB_LOCK.lock().await;
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let dir = std::path::Path::new(&home).join(if allow_blocked == Some(true) { "" } else { "voice-work" });
+    if allow_blocked != Some(true) {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("opencode.json"), DENY).map_err(|e| e.to_string())?;
+    }
+    let bin = std::path::Path::new(&home).join(".opencode/bin/opencode");
+    let bin = if bin.is_file() { bin } else { "opencode".into() };
+    let started = Instant::now();
+    let task2 = task.clone();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        use std::os::unix::process::CommandExt;
+        // One session called "voice" for every voice job; its own process group so a hang-up can kill all of it.
+        let mut cmd = std::process::Command::new(bin);
+        cmd.args(["run", "--auto", "--title", "voice", "--session", "ses_voice", &task2]).current_dir(&dir)
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).process_group(0);
+        let child = cmd.spawn()?;
+        let pid = child.id();
+        JOBS.lock().unwrap().push(pid);
+        // Hard stop after 15 minutes.
+        std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(900)); kill_group(pid); });
+        let r = child.wait_with_output();
+        JOBS.lock().unwrap().retain(|p| *p != pid);
+        r
+    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    crate::log::line(format!("voice_run: {:.1}s, {} bytes", started.elapsed().as_secs_f32(), out.stdout.len()));
+    let mut t = String::from_utf8_lossy(&out.stdout).into_owned();
+    t.push_str(&String::from_utf8_lossy(&out.stderr));
+    let t = t.trim();
+    let from = t.char_indices().rev().nth(1499).map_or(0, |(i, _)| i);
+    Ok(t[from..].to_string())
+}
+
+static JOBS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static JOB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn kill_group(pid: u32) {
+    // SIGKILL to the group: opencode and what it started. Nothing left to spend tokens.
+    unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+}
+
+/// Stops every voice job. The call ended, the user said stop, or the agent is gone.
+#[tauri::command]
+pub fn voice_cancel() -> usize {
+    let v: Vec<u32> = std::mem::take(&mut *JOBS.lock().unwrap());
+    v.iter().for_each(|p| kill_group(*p));
+    v.len()
+}
+
+/// What the agent should know about this machine.
+#[tauri::command]
+pub fn voice_context() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let host = std::fs::read_to_string("/etc/hostname").unwrap_or_default();
+    let desktop = std::path::Path::new(&home).join("Desktop");
+    let vault = crate::integrations::obsidian_vault().map(|p| p.display().to_string()).unwrap_or_default();
+    let t = crate::platform::local_time();
+    let mem = mem::recent();
+    format!(
+        "Máy đang gọi: {} (người dùng {}, {}). Thư mục home: {home}. Desktop: {}. Vault Obsidian: {vault}.\n{}Bây giờ: {:04}-{:02}-{:02} {:02}:{:02}.",
+        host.trim(), std::env::var("USER").unwrap_or_default(), std::env::consts::OS, desktop.display(),
+        if mem.is_empty() { String::new() } else { format!("Trí nhớ gần đây (tóm tắt các ngày trước):\n{mem}\n") },
+        t.year, t.month, t.day, t.hour, t.minute,
+    )
 }

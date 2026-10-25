@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
+export async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
   if (!IS_TAURI) return null;
   try {
     return await invoke<T>(cmd, args);
@@ -38,6 +38,8 @@ export interface FlowPrefs {
   voice: boolean;
   voiceOutput: VoiceOutput;
   voiceGender: "female" | "male";
+  /** The dictation key and the pill's mic: a live call with the voice agent, or local paste-what-you-said. */
+  dictation: "call" | "local";
 }
 
 export type ModelState =

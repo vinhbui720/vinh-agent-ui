@@ -24,6 +24,7 @@ export type IslandViewName =
   | "greeting"
   | "recap"
   | "wardrobe"
+  | "call"
   | "update";
 
 export type BotStateName =
@@ -39,7 +40,7 @@ export type BotStateName =
   | "sleeping"
   | "dizzy";
 
-export type BotEmoteName = "love" | "surprised" | "proud" | "wink" | "yawn" | "happy" | "annoyed";
+export type BotEmoteName = "love" | "surprised" | "proud" | "wink" | "yawn" | "happy" | "annoyed" | "angry";
 
 export type AgentLayoutMode = "none" | "grid" | "pills" | "column";
 
@@ -94,6 +95,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // to the shared image.
   recap: { height: 184, botX: 62, botY: null, botDiameter: 58, agentMode: "column" },
   wardrobe: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
+  call: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   // New version: Mochi on the left, the version and Update now (Mac: .update).
   update: { height: 160, botX: 62, botY: null, botDiameter: 58, agentMode: "none" },
 };
@@ -158,13 +160,15 @@ export function botPosition(
           opacity: 1,
         };
       }
+      if ((window as any).__COUCOU_WEB__ && view === "prompt") return { cx: 34, cy: 84, diameter: 36, opacity: 1 };
       if (layout.botY != null) {
         return { cx: layout.botX, cy: layout.botY, diameter: layout.botDiameter, opacity: 1 };
       }
       // Centre of the fixed 84 pt card (8 pt top inset + 34 pt header → content at y = 42)
       const headerBottom = 42;
       const cardH = 84;
-      const cy = headerBottom + (islandH - headerBottom - cardH) / 2 + cardH / 2;
+      // Browser build: Mochi rides the top card, the rest of the screen is content.
+      const cy = (window as any).__COUCOU_WEB__ ? headerBottom + 80 : headerBottom + (islandH - headerBottom - cardH) / 2 + cardH / 2;
       return { cx: layout.botX, cy, diameter: layout.botDiameter, opacity: 1 };
     }
   }

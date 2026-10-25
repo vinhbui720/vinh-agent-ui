@@ -69,8 +69,8 @@ export class Island {
   private views!: Map<IslandViewName, ViewHost>;
   private uploadCanvas!: UploadCanvas;
 
-  private width = new Tracked(NOTCH_W);
-  private height = new Tracked(0);
+  private width = new Tracked((window as any).__COUCOU_WEB__ ? window.innerWidth : NOTCH_W);
+  private height = new Tracked((window as any).__COUCOU_WEB__ ? (window.visualViewport?.height ?? window.innerHeight) : 0);
   private radius = new Tracked(ROUNDED_CORNER);
   private botCx = new Spring(46);
   private botCy = new Spring(16);
@@ -79,6 +79,8 @@ export class Island {
   private engine = new BotEngine();
   private greeting = new Greeting();
   private greetingShown = false;
+  private greetBg = h("div", { class: "greet-bg" });
+  private greetCaption = h("div", { class: "greet-caption" }, "Coucou");
   private seasons = new SeasonCache();
 
   private running = false;
@@ -197,6 +199,7 @@ export class Island {
           integration_github: "https://github.com/pulls",
           integration_stripe: "https://dashboard.stripe.com/payments",
           integration_notion: "https://notion.so",
+          integration_obsidian: "obsidian://open?",
           integration_calcom: "https://app.cal.com/bookings",
         };
         if (task.id === CLAUDE_DESKTOP_ID) void Bridge.openClaudeDesktop();
@@ -322,7 +325,9 @@ export class Island {
     this.clipEl = h(
       "div",
       { id: "island-clip" },
+      this.greetBg,
       this.greetingCanvas,
+      this.greetCaption,
       this.uploadCanvas.el,
       this.contentEl,
     );
@@ -352,6 +357,7 @@ export class Island {
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
     this.fsm.openOnHover = State.settings.openOnHover;
+    if ((window as any).__COUCOU_WEB__) window.addEventListener("resize", () => this.animateGeometry(false));
     this.fsm.onTransition = (from, to) => {
       // The greeting is over, however it ended: back to his desktop spot.
       if (from === "coucou" && to !== "coucou") this.desktop.launch();
@@ -469,6 +475,8 @@ export class Island {
     this.fsm.pinned = State.isPinned;
     this.fsm.forceHome();
     this.expand(view);
+    // finished/error cards: read time, then fold (answers wait pinned instead).
+    if (view === "finished" || view === "error") this.fsm.autoFold(8);
   }
 
   reveal() {
@@ -691,11 +699,20 @@ export class Island {
       h = QUESTION_PICKER_H;
     }
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
+    // Browser build: the island is the whole screen.
+    if ((window as any).__COUCOU_WEB__) return { w: window.innerWidth, h: window.visualViewport?.height ?? window.innerHeight, r: 0 };
     return { w, h, r };
   }
 
   private animateGeometry(shrinking: boolean) {
     const { w, h, r } = this.targetSize();
+    if ((window as any).__COUCOU_WEB__) {
+      // Phone: always the full screen, so no growing animation to wait for.
+      this.width.jump(w); this.height.jump(h); this.radius.jump(r);
+      this.dirty = true;
+      this.ensureRunning();
+      return;
+    }
     if (shrinking) {
       this.width.curveTowards(w);
       this.height.curveTowards(h);
@@ -715,13 +732,21 @@ export class Island {
     this.islandEl.style.width = `${w}px`;
     this.islandEl.style.height = `${hh}px`;
     this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
-    this.islandEl.style.transform = `translateX(-50%)`;
+    this.islandEl.style.transform = (window as any).__COUCOU_WEB__ ? "none" : `translateX(-50%)`;
     // These follow the island as it resizes, so they belong here rather than in
     // the state-driven DOM sync.
     this.miniGrid.style.left = `${w - 40 - 14.5}px`;
     this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
     this.clockEl.style.height = `${hh}px`;
-    this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
+    if ((window as any).__COUCOU_WEB__) {
+      // Phone: the greeting plays in the middle of the screen, bigger, with a caption.
+      const s = 1.7;
+      this.greetingCanvas.style.left = `${w / 2 - 320}px`;
+      this.greetingCanvas.style.top = `${hh / 2 - 90}px`;
+      this.greetingCanvas.style.transformOrigin = "320px 90px";
+      this.greetingCanvas.style.transform = `scale(${s})`;
+      this.greetCaption.style.top = `${hh / 2 + 105}px`;
+    } else this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
 
     const viewportW = window.innerWidth > 0 ? window.innerWidth : PANEL_W;
@@ -734,6 +759,9 @@ export class Island {
   }
 
   /** Island rect in window coordinates (origin top-left of the 720×320 window). */
+  /** The phone was shaken: same as a slap on Mochi (three in a row make him dizzy). */
+  shake() { if (State.mode === "expanded") this.engine.slap(); }
+
   private islandRect(): { x: number; y: number; w: number; h: number } {
     const w = this.width.value;
     const hh = this.height.value;
@@ -1011,6 +1039,8 @@ export class Island {
     this.botSize.step(dt);
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
+    this.greetCaption.style.opacity = greetingActive ? "1" : "0";
+    this.greetBg.classList.toggle("open", greetingActive);
     if (greetingActive) {
       const gctx = this.greetingCanvas.getContext("2d");
       if (gctx) {

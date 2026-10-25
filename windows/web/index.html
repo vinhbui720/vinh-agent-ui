@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Coucou">
+<link rel="manifest" href="/manifest.json"><link rel="apple-touch-icon" href="/icon.png">
+<title>Coucou</title>
+<style>
+:root{--bg:#0b0b0f;--card:#17171d;--line:#26262f;--fg:#f2f2f5;--dim:#8d8d99;--acc:#C084FC;--ok:#22C55E;--bad:#F4505E;--warn:#F5A524}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px -apple-system,system-ui,sans-serif;height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+nav{display:flex;gap:6px;padding:10px 12px;overflow-x:auto;flex:none}
+nav button{flex:1 0 auto;padding:9px 12px;border:0;border-radius:12px;background:var(--card);color:var(--dim);font:600 14px inherit;position:relative}
+nav button.on{background:var(--acc);color:#0b0b0f}
+nav i{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:4px;background:var(--warn);display:none}
+nav i.show{display:block}
+main{flex:1;overflow:auto;padding:0 12px 12px}
+.card{background:var(--card);border-radius:16px;padding:12px 14px;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:10px}
+.dot{width:10px;height:10px;border-radius:5px;background:var(--dim);flex:none}
+.working,.thinking,.searching{background:#4aa3ff}.finished{background:var(--ok)}.error,.ratelimit{background:var(--bad)}.approval,.question{background:var(--warn)}
+.dim{color:var(--dim);font-size:13px}.grow{flex:1;min-width:0}.one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.task:last-child{border:0}.task.done span{color:var(--dim);text-decoration:line-through}
+.box{width:22px;height:22px;border-radius:7px;border:2px solid var(--dim);flex:none}
+.done .box{background:var(--acc);border-color:var(--acc)}
+.day{color:var(--dim);font-size:12px;margin:14px 2px 6px}
+.btns{display:flex;gap:8px;margin-top:10px}
+.btns button,.chip{flex:1;padding:11px;border:0;border-radius:12px;font:700 14px inherit;color:#0b0b0f;background:var(--acc)}
+.btns .no{background:var(--card);color:var(--bad);border:1px solid var(--bad)}.btns .yes{background:var(--ok)}
+.chip{flex:none;padding:8px 12px;background:var(--card);color:var(--fg);border:1px solid var(--line);font-weight:600;margin:0 6px 6px 0}
+.chip.on{border-color:var(--acc);color:var(--acc)}
+pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-all;font:12px ui-monospace,monospace;color:#cfcfd8}
+form{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));flex:none}
+input{flex:1;min-width:0;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:16px inherit}
+form button{padding:0 14px;border:0;border-radius:14px;background:var(--acc);color:#0b0b0f;font-weight:700}
+#mic.rec{background:var(--bad)}#spk{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+.me{background:var(--acc);color:#0b0b0f;margin-left:36px}.bot{white-space:pre-wrap}.err{color:var(--bad)}
+</style></head><body>
+<nav id="nav"></nav>
+<main id="m"></main>
+<form id="f"><input id="i" autocomplete="off"><button type="button" id="mic">🎤</button><button type="button" id="spk"></button><button>Go</button></form>
+<script>
+const $=s=>document.querySelector(s),m=$("#m"),i=$("#i"),L=localStorage;
+const TABS=[["agents","Agents"],["oc","OpenCode"],["ask","Hermes"],["plan","Plan"],["inbox","Inbox"]];
+let tab=L.tab||"agents",st={sessions:[],approval:null},chat=[],busy=false,oc={sel:L.ocs||"",msgs:[],list:[],perms:[]};
+if(location.hash.slice(1))L.tok=location.hash.slice(1),history.replaceState(0,"",location.pathname);
+const api=(p,b)=>fetch("/api/"+p,{method:b?"POST":"GET",headers:{"X-Token":L.tok||"","Content-Type":"application/json"},body:b&&JSON.stringify(b)});
+const jget=async p=>{const r=await api(p);if(r.status==401)throw Error("token");return r.json()};
+const el=(c,t,tag="div")=>{const d=document.createElement(tag);d.className=c;if(t!=null)d.textContent=t;return d};
+const today=()=>new Date().toLocaleDateString("sv");
+// ── voice: ElevenLabs through the desktop; iPhone only plays audio after a tap, so one <audio> is unlocked on Go/mic
+const au=new Audio();let speak=L.speak!=="0";const spk=$("#spk");
+const drawSpk=()=>spk.textContent=speak?"🔊":"🔇";drawSpk();
+spk.onclick=()=>{speak=!speak;L.speak=speak?"1":"0";drawSpk();if(!speak)au.pause()};
+const unlock=()=>{au.src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";au.play().catch(()=>{})};
+async function say(text){if(!speak||!text)return;
+  const sentences=(text.replace(/[`*#>]/g,"").match(/[^.!?\n]+[.!?]?/g)||[]).filter(s=>s.trim()).slice(0,6);
+  for(const s of sentences){if(!speak)return;const r=await (await api("live/tts",{text:s})).json();if(!r.audio)return;
+    au.src="data:audio/mpeg;base64,"+r.audio;await new Promise(ok=>{au.onended=au.onerror=ok;au.play().catch(ok)})}}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;const mic=$("#mic");
+if(!SR)mic.style.display="none";else mic.onclick=()=>{unlock();const r=new SR();r.lang=L.lang||navigator.language||"en-US";mic.classList.add("rec");
+  r.onresult=e=>{i.value=e.results[0][0].transcript;$("#f").requestSubmit()};r.onend=()=>mic.classList.remove("rec");r.start()};
+// ── Agents + approvals
+function agents(){
+  m.replaceChildren();const a=st.approval;
+  if(a){const c=el("card","");c.style.borderLeft="4px solid var(--warn)";c.append(el("",a.pillId.replace("agent_","")+" asks: "+a.tool),(()=>{const p=el("","","pre");p.textContent=a.command;return p})());
+    const b=el("btns","");const yes=el("yes","Allow","button"),no=el("no","Deny","button");
+    if(a.truncated){yes.disabled=true;yes.textContent="Too long: allow on the desktop";yes.style.opacity=.5}
+    yes.onclick=()=>decide("allow");no.onclick=()=>decide("deny");b.append(no,yes);c.append(b);m.append(c)}
+  for(const s of st.sessions){const c=el("card","");const r=el("row","");r.append(el("dot "+s.state,""),(()=>{const g=el("grow","");g.append(el("one",s.agent.replace(/^agent_/,"")+(s.project?" · "+s.project:"")),el("dim one",s.finalLine||s.statusText||s.state));return g})(),el("dim",s.state));c.append(r);
+    if(s.steps?.length){const p=el("","","pre");p.textContent=s.steps.slice(-3).join("\n");c.append(p)}m.append(c)}
+  if(!m.children.length)m.append(el("card","No agent running"));
+}
+async function decide(d){const a=st.approval;if(!a)return;await api("live/decide",{fingerprint:a.fingerprint,decision:d});await poll()}
+// ── OpenCode
+async function ocLoad(){try{oc.list=await jget("live/oc/sessions");oc.perms=await jget("live/oc/permissions");
+  if(oc.sel&&!oc.list.some(s=>s.id===oc.sel))oc.sel=oc.list[0]?.id||"";if(!oc.sel&&oc.list[0])oc.sel=oc.list[0].id;
+  oc.msgs=oc.sel?await jget("live/oc/messages?session="+encodeURIComponent(oc.sel)):[]}catch(e){oc.err=e.message}}
+function ocDraw(){m.replaceChildren();
+  if(oc.err&&!oc.list.length){m.append(el("card err","OpenCode: "+oc.err));return}
+  const chips=el("","");oc.list.forEach(s=>{const b=el("chip"+(s.id===oc.sel?" on":""),(s.running?"● ":"")+(s.title||s.directory.split("/").pop()||s.id),"button");b.onclick=async()=>{oc.sel=s.id;L.ocs=s.id;await ocLoad();ocDraw()};chips.append(b)});m.append(chips);
+  if(!oc.list.length)m.append(el("card","No OpenCode session running"));
+  for(const p of oc.perms.filter(p=>p.sessionId===oc.sel)){const c=el("card","");c.style.borderLeft="4px solid var(--warn)";c.append(el("",p.action+" "+p.resources.join(" ")));
+    const b=el("btns","");[["reject","Deny","no"],["once","Allow",""],["always","Always","yes"]].forEach(([d,t,k])=>{const x=el(k,t,"button");x.onclick=async()=>{await api("live/oc/reply",{session:p.sessionId,request:p.id,decision:d});await ocLoad();ocDraw()};b.append(x)});c.append(b);m.append(c)}
+  oc.msgs.forEach(x=>m.append(el("card "+(x.role==="user"?"me":"bot"),x.text)));
+  const run=oc.list.find(s=>s.id===oc.sel)?.running;if(run){const b=el("btns","");const x=el("no","Stop","button");x.onclick=async()=>{await api("live/oc/interrupt",{session:oc.sel})};b.append(x);m.append(b)}
+  m.scrollTop=m.scrollHeight}
+// ── Hermes
+function ask(){m.replaceChildren(...chat.map(x=>el("card "+x.r,x.t)));if(!chat.length)m.append(el("card dim","Ask Hermes about your notes, plans, anything."));m.scrollTop=m.scrollHeight}
+// ── Plan
+async function plan(){
+  let ts;try{ts=(await jget("tasks")).filter(t=>t.day)}catch{return m.replaceChildren(el("card err","Open the link with #token from the desktop."))}
+  const by={};ts.forEach(t=>(by[t.day]??=[]).push(t));m.replaceChildren();
+  for(const d of Object.keys(by).sort().filter(d=>d>=today()||by[d].some(t=>!t.done)).slice(0,14)){
+    m.append(el("day",d===today()?"Today":d));const c=el("card","");
+    by[d].sort((a,b)=>a.done-b.done).forEach(t=>{const row=el("task"+(t.done?" done":""),"");row.append(el("box",""),el("",t.text,"span"));row.onclick=async()=>{await api("toggle",t);plan()};c.append(row)});m.append(c)}
+  if(!m.children.length)m.append(el("card","Nothing planned"))}
+async function inbox(){m.replaceChildren();const rows=(await jget("inbox")).reverse();
+  rows.forEach(x=>{const c=el("card",x.message);m.append(c)});if(!rows.length)m.append(el("card","No messages"))}
+const draw=()=>({agents,oc:ocDraw,ask,plan,inbox})[tab]();
+// ── nav
+const nav=$("#nav");TABS.forEach(([k,t])=>{const b=el("",t,"button");b.dataset.t=k;b.append(el("","","i"));b.onclick=()=>{tab=k;L.tab=k;sync();if(k==="oc")ocLoad().then(ocDraw)};nav.append(b)});
+function sync(){nav.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
+  nav.querySelector('[data-t=agents] i').classList.toggle("show",!!st.approval);
+  nav.querySelector('[data-t=oc] i').classList.toggle("show",oc.perms.length>0);
+  i.placeholder={ask:"Ask Hermes…",oc:"Message OpenCode…",plan:"Add a task…"}[tab]||"";
+  $("#f").style.display=["agents","inbox"].includes(tab)?"none":"";
+  mic.style.display=SR&&tab!=="plan"?"":"none";spk.style.display=tab==="plan"?"none":"";draw()}
+async function poll(){try{st=await jget("live/state");if(tab==="agents")agents()}catch(e){if(tab==="agents")m.replaceChildren(el("card err",e.message==="token"?"Open the link with #token from the desktop.":"Coucou app is not running"))}
+  try{oc.perms=await jget("live/oc/permissions")}catch{}
+  nav.querySelector('[data-t=agents] i').classList.toggle("show",!!st.approval);nav.querySelector('[data-t=oc] i').classList.toggle("show",oc.perms.length>0);
+  if(tab==="oc"&&document.activeElement!==i){await ocLoad();ocDraw()}
+  if(tab==="inbox")inbox()}
+$("#f").onsubmit=async e=>{e.preventDefault();unlock();const t=i.value.trim();if(!t||busy)return;i.value="";
+  if(tab==="plan"){await api("add",{text:t,day:today()});return plan()}
+  if(tab==="oc"){if(!oc.sel)return;await api("live/oc/send",{session:oc.sel,text:t});oc.msgs.push({role:"user",text:t});ocDraw();return}
+  busy=true;chat.push({r:"me",t},{r:"bot",t:"…"});const out=chat[chat.length-1];ask();
+  try{const r=await api("chat",{text:t,session:L.hs||""}),rd=r.body.getReader(),dec=new TextDecoder();let buf="";
+    for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const ls=buf.split("\n");buf=ls.pop();
+      for(const l of ls){const v=JSON.parse(l);if(v.delta)out.t=v.delta;if(v.done){out.t=v.done;L.hs=v.session;say(v.done)}if(v.error)out.t="Error: "+v.error;ask()}}}
+  catch(x){out.t="Error: "+x.message;ask()}busy=false};
+sync();poll();setInterval(poll,3000);setInterval(()=>tab==="plan"&&document.activeElement!==i&&plan(),30000);
+</script></body></html>

@@ -25,6 +25,7 @@ mod pairing;
 mod relay_client;
 mod relay_crypto;
 mod server;
+pub mod web;
 #[cfg(test)]
 mod tests;
 

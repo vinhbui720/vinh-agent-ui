@@ -9,7 +9,9 @@ mod config_file;
 mod desktop;
 mod files;
 mod flow;
+mod focus;
 mod github;
+mod hermes;
 mod hooks;
 mod i18n;
 mod identity;
@@ -18,7 +20,9 @@ mod island;
 mod local_chat;
 mod log;
 mod net;
+mod vault_notes;
 mod notes;
+mod obsidian;
 mod opencode;
 mod openai_compat;
 mod phone_link;
@@ -227,7 +231,7 @@ fn list_monitors(app: AppHandle) -> Vec<island::MonitorChoice> {
 
 #[tauri::command]
 fn open_url(url: String) {
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
+    if !(url.starts_with("http://") || url.starts_with("https://") || url.starts_with("obsidian://open?")) {
         return;
     }
     platform::open_url(&url);
@@ -889,7 +893,22 @@ pub fn run() {
             opencode_create,
             opencode_history,
             opencode_ls,
+            hermes::hermes_ask,
+            focus::focus_start,
+            focus::focus_stop,
+            focus::focus_state,
+            focus::focus_targets,
+            focus::focus_tab_select,
+            focus::focus_tab_close,
+            obsidian::obsidian_overview,
+            obsidian::obsidian_toggle,
+            obsidian::obsidian_add,
             voice::opencode_tts,
+            voice::local_stt,
+            voice::voice_token,
+            voice::call_cmd,
+            voice::call_machines,
+            voice::call_state,
             opencode_messages,
             opencode_send,
             opencode_interrupt,
@@ -911,6 +930,7 @@ pub fn run() {
             phone_link::phone_link_pairing,
             phone_link::phone_link_new_pairing,
             phone_link::phone_link_publish,
+            phone_link::web::web_state,
             phone_link::phone_link_publish_question,
             phone_link::phone_link_publish_prefs,
             phone_link::phone_answers_status,
@@ -1014,6 +1034,7 @@ pub fn run() {
             desktop::setup(&handle);
             flow::setup(&handle);
             notes::setup(&handle);
+            voice::mem::setup();
 
             if let Some(win) = island::window(&handle) {
                 // Where Tauri takes the drop itself (Linux), its paths are the
@@ -1042,6 +1063,7 @@ pub fn run() {
             hooks::ensure_hook_exe(&handle);
             pipe::start(handle.clone());
             phone_link::start_if_enabled(&handle);
+            phone_link::web::start(&handle);
             integrations::start(handle.clone());
             spotify::sync(&handle, &loaded.active_integrations);
             youtube::sync(&handle, &loaded.active_integrations);

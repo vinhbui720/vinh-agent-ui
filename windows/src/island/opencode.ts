@@ -156,7 +156,7 @@ let playing: HTMLAudioElement | null = null;
 let generation = 0; // Stop bumps it: clips queued before it are dropped
 let talking = 0; // clips fetched or playing
 
-export const speechOn = () => localStorage.getItem("ocSpeak") !== "0";
+export const speechOn = () => (localStorage.getItem("ocSpeak") ?? ((window as any).__COUCOU_WEB__ ? "0" : "1")) !== "0";
 export const isSpeaking = () => talking > 0;
 
 function silence() {
@@ -255,6 +255,12 @@ export function speakFinished(
   }
 }
 
+/** Reads a message aloud (same voice, mute and stop rules as OpenCode's answers). */
+export function speakAloud(text: string) {
+  const say = speakable(text);
+  if (say) enqueue(say);
+}
+
 function enqueue(text: string) {
   if (!speechOn()) return; // muted: no request to ElevenLabs at all
   const mine = generation;
@@ -262,7 +268,7 @@ function enqueue(text: string) {
   State.notify();
   const clip = Bridge.opencodeTts(text).then((mp3) => {
     if (!mp3) return null;
-    const a = new Audio(`data:audio/mpeg;base64,${mp3}`); // decoded while the previous clip still plays
+    const a = new Audio(`data:audio/${mp3.startsWith("UklGR") ? "wav" : "mpeg"};base64,${mp3}`); // decoded while the previous clip still plays
     a.preload = "auto";
     return a;
   }).catch(() => null);

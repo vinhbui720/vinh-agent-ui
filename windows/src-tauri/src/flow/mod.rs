@@ -202,6 +202,7 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
     let secs = |at: Instant| at.saturating_duration_since(epoch).as_secs_f64();
     let mut logic = KeyLogic::default();
     let mut listening: Option<Listening> = None;
+    let mut key_held = false; // call mode: key repeat must not toggle again
     let busy = Arc::new(AtomicBool::new(false));
     loop {
         let active = listening.is_some() || logic.is_active();
@@ -217,6 +218,20 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
                 Err(_) => break,
             }
         };
+        // Call mode: the key, the pill's mic and its ✓/✕ start and end the live call; nothing is recorded or pasted here.
+        if flow.store.lock().unwrap().prefs.dictation == "call" {
+            match received {
+                Some((KeyEvent::Quit, _)) => break,
+                Some((KeyEvent::Down, _)) => {
+                    if !key_held { key_held = true; crate::voice::call_toggle(&app); }
+                }
+                Some((KeyEvent::Up, _)) => key_held = false,
+                Some((KeyEvent::HandsFree, _)) => crate::voice::call_toggle(&app),
+                Some((KeyEvent::Finish, _)) | Some((KeyEvent::Cancel, _)) | Some((KeyEvent::Escape, _)) => crate::voice::call_end(&app),
+                _ => {}
+            }
+            continue;
+        }
         let action = match received {
             Some((KeyEvent::Quit, _)) => {
                 drop(listening.take());

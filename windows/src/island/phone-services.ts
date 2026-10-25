@@ -88,6 +88,15 @@ const BUILDERS: Record<string, Builder> = {
       items: pages.slice(0, 3).map((p) => ({ label: String(p.title ?? t("Untitled")), detail: ago(p.lastEditedAt, now) })),
     };
   },
+  integration_obsidian: (now) => {
+    const pages = list("integration_obsidian", "pages");
+    return {
+      id: "integration_obsidian", title: "Obsidian",
+      headline: String(pages.length),
+      reason: t("Recent"),
+      items: pages.slice(0, 3).map((p) => ({ label: String(p.title ?? t("Untitled")), detail: ago(p.lastEditedAt, now) })),
+    };
+  },
   integration_calcom: () => {
     const bookings = list("integration_calcom", "bookings")
       .slice()

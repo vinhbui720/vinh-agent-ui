@@ -27,6 +27,8 @@ const T = {
 };
 
 export const GREETING_END = T.end;
+/** Browser build: the same animation, played faster. */
+const SPEED = (window as any).__COUCOU_WEB__ ? 2 : 1;
 
 /** The greeting's own sound, played from the start (greeting.wav, the Mac's file). */
 const GREETING_SOUND = "greeting";
@@ -604,7 +606,7 @@ export class Greeting {
     // The score plays from the start; it outlives greetComplete a little on
     // purpose and fades when the greeting view goes away (see leave()).
     Sound.play(GREETING_SOUND);
-    this.timers.push(window.setTimeout(() => this.fire(), (T.end + 0.05) * 1000));
+    this.timers.push(window.setTimeout(() => this.fire(), (T.end + 0.05) * 1000 / SPEED));
   }
 
   /** Mouse entered the island during the greeting — hold it open. */
@@ -614,7 +616,7 @@ export class Greeting {
 
   /** Mouse left — collapse from now. */
   interrupt() {
-    const t = (performance.now() - this.startMs) / 1000;
+    const t = this.elapsed;
     if (!Number.isFinite(this.tc) || this.tc > t) this.tc = t;
     this.cancelTimers();
     Sound.fadeOut(GREETING_SOUND, 0.25);
@@ -627,7 +629,7 @@ export class Greeting {
   }
 
   get elapsed(): number {
-    return (performance.now() - this.startMs) / 1000;
+    return ((performance.now() - this.startMs) / 1000) * SPEED;
   }
 
   get done(): boolean {

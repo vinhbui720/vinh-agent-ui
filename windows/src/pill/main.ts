@@ -12,6 +12,8 @@ import type { Settings } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { resolveLanguage, setLanguage, systemLanguages, t } from "../i18n/i18n";
 import { HUB_ICONS, keyLabel } from "../hub/ui";
+import { listen } from "../mochi/anims/listen";
+import { drawVectorAnim } from "../mochi/vector-anim";
 
 const RESTING_LENGTH = 44;
 const RESTING_THICKNESS = 8;
@@ -52,6 +54,7 @@ mochi.isMini = true;
 mochi.bodyColor = hexToRGB("#F5F6F8");
 mochi.setState("idle", true);
 const mochiCanvas = el("canvas");
+let listenSince = 0;
 
 function mochiSlot(): HTMLElement {
   const slot = el("span", "mochi");
@@ -392,7 +395,12 @@ function tick(now: number) {
     if (ctx) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, size, size);
-      mochi.draw(ctx, size, size);
+      if (state.voice) {
+        // A live call: the web app's listening Mochi, intro then loop.
+        const e = Math.floor((now - (listenSince ||= now)) / 125);
+        const f = e < 5 ? e : 5 + ((e - 5) % 16);
+        drawVectorAnim(ctx, listen, (f + 0.01) / listen.fps, size / 2, size / 2, size / 300);
+      } else { listenSince = 0; mochi.draw(ctx, size, size); }
     }
   }
   const c = root.querySelector<HTMLElement>("[data-clock]");

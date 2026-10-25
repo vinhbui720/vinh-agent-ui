@@ -1,0 +1,11 @@
+[Unit]
+Description=Voice agent (local)
+After=lk-server.service
+[Service]
+EnvironmentFile=%h/voice-agent/keys.env
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/voice-agent
+ExecStart=%h/voice-agent/.venv/bin/python agent.py start
+Restart=always
+[Install]
+WantedBy=default.target

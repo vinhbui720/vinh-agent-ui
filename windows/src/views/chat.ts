@@ -16,12 +16,20 @@ import {
 import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
 import type { ViewHost } from "./views";
-import { OPENCODE_PILL, newOpenCodeSession, setSpeech, speechOn, resumeOpenCodeSession, selectOpenCodeSession, sessionOf, setOpenCodeDirectory } from "../island/opencode";
+import { OPENCODE_PILL, newOpenCodeSession, setSpeech, speakAloud, speechOn, resumeOpenCodeSession, selectOpenCodeSession, sessionOf, setOpenCodeDirectory } from "../island/opencode";
 import { N_, t, tl } from "../i18n/i18n";
+import { OBSIDIAN_PILL, buildPlanner } from "./obsidian";
+import { buildCall } from "./call";
+
+const HERMES_PILL = "agent_hermes";
+/** The Hermes pill, and the Obsidian pill's Ask side, talk to Hermes. */
+const hermesActive = () => State.chatPill === HERMES_PILL || (State.chatPill === OBSIDIAN_PILL && !State.obsidianPlan);
 
 const STRINGS = {
   placeholderFirst: N_("Ask me anything…"),
   placeholderNext: N_("Continue…"),
+  dictate: N_("Dictate (tap to start and stop)"),
+  dictateFail: N_("Dictation failed: microphone or voice server unavailable"),
   send: N_("Send"),
   switchModel: N_("Switch provider or model"),
   noModel: N_("Choose a model"),
@@ -231,7 +239,33 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     spellcheck: "false",
   }) as HTMLInputElement;
   const send = h("button", { class: "send-btn", title: tl(STRINGS.send) }, svg(ICONS.arrowUp, 11));
-  const bar = h("div", { class: "chat-bar" }, input, send);
+  const mic = h("button", { class: "mic-btn", title: tl(STRINGS.dictate), type: "button" }, svg(ICONS.mic, 12));
+  const bar = h("div", { class: "chat-bar" }, input, mic, buildCall(), send);
+  // Dictation: tap to record, tap again to stop; the local STT server (Vietnamese or English) fills the box.
+  let rec: MediaRecorder | null = null;
+  mic.onclick = async () => {
+    if (rec) { rec.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      mr.ondataavailable = (e) => chunks.push(e.data);
+      mr.onstop = async () => {
+        rec = null; stream.getTracks().forEach((k) => k.stop());
+        mic.classList.remove("rec"); mic.classList.add("busy");
+        try {
+          const blob = new Blob(chunks, { type: mr.mimeType });
+          const u8 = new Uint8Array(await blob.arrayBuffer());
+          let bin = ""; for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+          const b64 = btoa(bin);
+          const text = await Bridge.localStt(b64, mr.mimeType, null);
+          if (text) { input.value = (input.value ? input.value + " " : "") + text; input.focus(); input.dispatchEvent(new Event("input")); }
+        } catch { mic.title = t(STRINGS.dictateFail); }
+        mic.classList.remove("busy");
+      };
+      rec = mr; mr.start(); mic.classList.add("rec");
+    } catch { mic.title = t(STRINGS.dictateFail); }
+  };
 
   const modelDot = h("i", { class: "model-dot" });
   const modelName = h("span", { class: "model-name" });
@@ -249,7 +283,18 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     body.classList.toggle("picking", picker.isOpen);
     drawModelButton();
   });
-  body.append(chipRow, log, picker.el, modelRow, bar);
+  // Obsidian pill: a calendar and a to-do list take the place of the chat.
+  const planner = buildPlanner();
+  planner.el.style.display = "none";
+  const obTabs = h("div", { class: "ob-tabs ob-switch" });
+  const obBtn = (plan: boolean, text: string) => h("button", { class: "oc-tab", text, onclick: () => {
+    State.obsidianPlan = plan;
+    State.notify();
+    if (!plan) window.setTimeout(() => input.focus(), 0);
+  } });
+  const obPlan = obBtn(true, t("Plan")), obAsk = obBtn(false, t("Ask"));
+  obTabs.append(obPlan, obAsk);
+  body.append(obTabs, chipRow, log, picker.el, modelRow, bar, planner.el);
 
   const el = h("div", { class: "view" }, h("div", { class: "card wash chat-card" }, body));
   (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
@@ -339,7 +384,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     ocRow.style.display = on ? "" : "none";
     ocPerms.style.display = on ? "" : "none";
     ocPanel.style.display = on && State.opencode.panel ? "" : "none";
-    modelRow.style.display = on ? "none" : "";
+    modelRow.style.display = on || hermesActive() ? "none" : "";
     if (!on) return;
     const oc = State.opencode;
     ocVoice.title = t(speechOn() ? STRINGS.ocMute : STRINGS.ocSpeak);
@@ -427,6 +472,41 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       }
       return;
     }
+    if (hermesActive()) {
+      // Hermes: its own brain and memory; Coucou only carries the words and the session id.
+      input.value = "";
+      sending = true;
+      drawModelButton();
+      Sound.play("send");
+      livePill = HERMES_PILL;
+      const history = State.chatHistory;
+      history.push({ id: nextId++, role: "user", content: query });
+      State.stateOverride = "thinking";
+      State.notify();
+      onHeightChange();
+      try {
+        const reply = await Bridge.hermesAsk(query, localStorage.getItem("hermesSession"));
+        if (reply.session) localStorage.setItem("hermesSession", reply.session);
+        history.push({ id: nextId++, role: "assistant", content: reply.text });
+        speakAloud(reply.text);
+        State.stateOverride = null;
+        Sound.play("finish");
+      } catch (err) {
+        State.stateOverride = null;
+        State.noteMessage = String(err).replace(/^Error:\s*/, "");
+        State.view = "note";
+        Sound.play("error");
+      } finally {
+        sending = false;
+        live = null;
+        renderedCount = -1;
+        drawModelButton();
+        State.notify();
+        onHeightChange();
+        input.focus();
+      }
+      return;
+    }
     input.value = "";
     sending = true;
     drawModelButton();
@@ -482,6 +562,14 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   return {
     el,
     sync() {
+      const isOb = State.chatPill === OBSIDIAN_PILL;
+      const plan = isOb && State.obsidianPlan;
+      obTabs.style.display = isOb ? "" : "none";
+      obPlan.classList.toggle("on", State.obsidianPlan);
+      obAsk.classList.toggle("on", !State.obsidianPlan);
+      body.classList.toggle("planning", plan);
+      planner.el.style.display = plan ? "" : "none";
+      if (plan) planner.sync();
       ocDraw();
       const file = State.droppedFile;
       const wantChip = file?.name ?? "";

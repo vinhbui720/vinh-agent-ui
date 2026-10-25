@@ -65,6 +65,8 @@ export default defineConfig({
         settings: resolve(__dirname, "settings.html"),
         mochi: resolve(__dirname, "mochi.html"),
         pill: resolve(__dirname, "pill.html"),
+        web: resolve(__dirname, "web.html"),
+        call: resolve(__dirname, "call.html"),
       },
     },
   },

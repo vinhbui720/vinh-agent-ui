@@ -1,0 +1,8 @@
+[Unit]
+Description=LiveKit server (local)
+[Service]
+EnvironmentFile=%h/voice-agent/keys.env
+ExecStart=/bin/sh -c "LIVEKIT_KEYS=\"$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET\" exec %h/voice-agent/bin/livekit-server --config %h/voice-agent/livekit.yaml"
+Restart=always
+[Install]
+WantedBy=default.target

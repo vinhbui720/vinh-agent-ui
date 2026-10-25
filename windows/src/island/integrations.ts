@@ -7,6 +7,7 @@ import { gitHubAlert, type GitHubEvent } from "../core/github";
 import { availablePills } from "../core/pills";
 import { Sound } from "../core/sound";
 import { State } from "../core/state";
+import { onFocusUpdate, FOCUS_PILL } from "../views/focus";
 import type { Island } from "./island";
 
 const GITHUB = "integration_github";
@@ -101,6 +102,7 @@ function handle(island: Island, update: IntegrationUpdate) {
     configured: previous?.configured ?? true,
   };
 
+  if (update.id === FOCUS_PILL) onFocusUpdate(update.data as never, () => island.reveal());
   const event = update.event;
   if (event) {
     const task = State.tasks.find((t) => t.id === update.id);

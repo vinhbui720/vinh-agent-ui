@@ -128,6 +128,12 @@ export const PILL_CATALOG: readonly PillDefinition[] = [
     subtitle: N_("Integration"), source: "n8n", support: "yes", connect: key("gitea-token") },
   { id: "integration_notion", name: "Notion", color: "#8C8C8C", category: "service",
     subtitle: N_("Integration"), source: "n8n", support: "yes", connect: key("notion-api-key") },
+  // A folder of notes, read from disk (src-tauri/src/integrations.rs).
+  { id: "integration_obsidian", name: "Obsidian", color: "#7C3AED", category: "service",
+    subtitle: N_("Integration"), source: "n8n", support: "yes", connect: none },
+  // Focus timer: stay on one tab or window (src-tauri/src/focus.rs).
+  { id: "integration_focus", name: "Focus", color: "#EF4444", category: "service",
+    subtitle: N_("Integration"), source: "n8n", support: "yes", connect: none },
   { id: "integration_calcom", name: "Cal.com", color: "#C9956A", category: "service",
     subtitle: N_("Integration"), source: "n8n", support: "yes", connect: key("calcom-api-key") },
   { id: "integration_stripe", name: "Stripe", color: "#0570DE", category: "service",
@@ -177,7 +183,8 @@ export function isHookPill(id: string): boolean {
 
 /** Workspace tools that can be the main pill. */
 export function mainPillChoices(os: HostOs = HOST_OS): PillDefinition[] {
-  return availablePills(os).filter((p) => p.category === "workspace" && p.support !== "soon");
+  // Hermes too: a personal agent can be the one that is always there.
+  return availablePills(os).filter((p) => (p.category === "workspace" || p.id === "agent_hermes") && p.support !== "soon");
 }
 
 /** PillDefinition.sessionSubtitle — next to the name in a live session's card. */

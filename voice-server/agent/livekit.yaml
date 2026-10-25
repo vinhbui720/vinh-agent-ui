@@ -1,0 +1,10 @@
+# LiveKit server on vinhtp-1. Loopback only: clients reach it through an SSH tunnel (see README).
+# Keys live in ~/voice-agent/keys.env on vinhtp-1 (never in the repo); the server reads LIVEKIT_KEYS.
+port: 7880
+bind_addresses: ["127.0.0.1"]
+rtc:
+  tcp_port: 7881          # media over TCP: tunnels and userspace Tailscale carry no UDP
+  use_external_ip: false
+  node_ip: 127.0.0.1
+  enable_loopback_candidate: true
+logging: { level: info }

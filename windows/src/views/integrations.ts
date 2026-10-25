@@ -12,6 +12,7 @@ import { isComingSoon, pillDefinition } from "../core/pills";
 import { refreshHookPills } from "../island/integrations";
 import { readActivity, readPulse, readStats } from "../core/github";
 import { githubDetail, githubPulseCard, type ForgeCardOptions } from "./github";
+import { focusCard } from "./focus";
 import { N_, language, t } from "../i18n/i18n";
 
 /** Same shape as the Swift `timeAgo` computed properties. */
@@ -55,6 +56,7 @@ const OPEN_URLS: Record<string, string> = {
   integration_github: "https://github.com",
   integration_stripe: "https://dashboard.stripe.com/payments",
   integration_notion: "https://notion.so",
+  integration_obsidian: "obsidian://open?",
   integration_calcom: "https://app.cal.com/bookings",
 };
 
@@ -326,9 +328,9 @@ function stripeCard(): HTMLElement {
 
 // ── Notion ────────────────────────────────────────────────────────────────────
 
-function notionCard(): HTMLElement {
+function notionCard(id = "integration_notion", name = "Notion", color = "#E8E8E8"): HTMLElement {
   const rows = h("div", { class: "int-rows tight" });
-  for (const p of arr("integration_notion", "pages").slice(0, 3)) {
+  for (const p of arr(id, "pages").slice(0, 3)) {
     rows.append(
       h(
         "button",
@@ -346,7 +348,7 @@ function notionCard(): HTMLElement {
       ),
     );
   }
-  return h("div", { class: "int-card" }, header("#E8E8E8", "Notion", t("Recent")), rows);
+  return h("div", { class: "int-card" }, header(color, name, t("Recent")), rows);
 }
 
 // ── Cal.com ───────────────────────────────────────────────────────────────────
@@ -459,6 +461,7 @@ export function hasIntegrationData(id: string): boolean {
     case "integration_stripe":
       return info.loaded;
     case "integration_notion":
+    case "integration_obsidian":
       return arr(id, "pages").length > 0;
     case "integration_calcom":
       return info.loaded;
@@ -468,6 +471,7 @@ export function hasIntegrationData(id: string): boolean {
 }
 
 export function renderIntegrationCard(task: AgentTask, hooks: IntegrationCardHooks): HTMLElement {
+  if (task.id === "integration_focus") return focusCard();
   if (task.id === "integration_n8n") {
     const hasActivity = task.steps.length > 0 && (task.state === "finished" || task.state === "error");
     return hooks.detailOpen && hasActivity
@@ -514,6 +518,8 @@ export function renderIntegrationCard(task: AgentTask, hooks: IntegrationCardHoo
       return stripeCard();
     case "integration_notion":
       return notionCard();
+    case "integration_obsidian":
+      return notionCard("integration_obsidian", "Obsidian", "#A78BFA");
     case "integration_calcom":
       return calcomCard();
     default:

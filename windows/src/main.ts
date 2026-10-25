@@ -1,3 +1,4 @@
+import { speakAloud } from "./island/opencode";
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
@@ -42,6 +43,9 @@ async function main() {
   }
 
   const island = new Island(root);
+  // Browser build: the hello scene starts at once, not after the boot round trips.
+  const WEB = !!(window as any).__COUCOU_WEB__;
+  if (WEB) { island.launch(); (window as any).__shake = () => island.shake(); }
 
   const boot = await Bridge.boot();
   if (boot) {
@@ -143,7 +147,8 @@ async function main() {
     void refreshConfigured();
   });
 
-  registerHookHandlers(island);
+  if ((window as any).__COUCOU_WEB__) followDesktop(island);
+  else registerHookHandlers(island);
   registerOpenCode(island);
   registerPhoneLink(island);
   registerIntegrationHandlers(island);
@@ -164,13 +169,60 @@ async function main() {
   island.onWake = checkRecap;
   await onEvent<null>("recap-check", checkRecap);
 
-  island.launch();
+  if (!WEB) island.launch();
+  // Browser build: coming back to the app plays the hello scene again, right away.
+  if ((window as any).__COUCOU_WEB__) (window as any).__greet = () => island.launch();
+  if (IS_TAURI) publishWebState();
 
   // In a plain browser there is no wake strip behind the cursor: make the whole
   // page wake the island so the visuals can be checked with `npm run dev`.
   if (!IS_TAURI) {
-    document.addEventListener("click", () => Sound.resume(), { once: true });
+    for (const ev of ["click", "touchstart"]) document.addEventListener(ev, () => Sound.resume(), { once: true });
   }
 }
 
 void main();
+
+/** Desktop island → browser copy: the whole picture, debounced. */
+function publishWebState() {
+  let timer: number | null = null;
+  const send = () => {
+    timer = null;
+    const chats = Object.fromEntries(Object.entries(State.chats).map(([k, v]) => [k, v.slice(-40)]));
+    const oc = State.opencode;
+    void Bridge.webState(JSON.stringify({
+      tasks: State.tasks, focusId: State.focusId, chats, pendingApproval: State.pendingApproval,
+      integrations: State.integrations, planUsage: State.planUsage, codexPlanUsage: State.codexPlanUsage,
+      opencode: { sessions: oc.sessions, pending: oc.pending, selected: oc.selected },
+      ls: { hermesSession: localStorage.getItem("hermesSession"), ocSel: localStorage.getItem("ocSel") },
+    }));
+  };
+  State.subscribe(() => { if (timer == null) timer = window.setTimeout(send, 400); });
+  window.setInterval(send, 30_000);
+  send();
+}
+
+/** Browser copy: show what the desktop island shows. */
+let lastDesktopFocus: string | null = null;
+function followDesktop(island: Island) {
+  void onEvent<{ hook_event_name?: string; message?: string }>("hook", (p) => { if (p.hook_event_name === "Say" && p.message) speakAloud(p.message); });
+  void onEvent<any>("web-state", (s) => {
+    if (!s) return;
+    const wasApproval = State.pendingApproval?.requestId;
+    State.tasks = s.tasks ?? [];
+    // The phone keeps its own selection; the desktop's only moves it when the desktop's changes.
+    if (s.focusId && s.focusId !== lastDesktopFocus) { State.focusId = s.focusId; lastDesktopFocus = s.focusId; }
+    for (const [k, v] of Object.entries<any[]>(s.chats ?? {})) {
+      if ((State.chats[k]?.length ?? 0) <= v.length) State.chats[k] = v;
+    }
+    State.integrations = s.integrations ?? {};
+    State.planUsage = s.planUsage ?? null;
+    State.codexPlanUsage = s.codexPlanUsage ?? null;
+    State.opencode = { ...State.opencode, ...s.opencode };
+    for (const [k, v] of Object.entries<any>(s.ls ?? {})) if (v) localStorage.setItem(k, v);
+    State.pendingApproval = s.pendingApproval ?? null;
+    if (State.pendingApproval && State.pendingApproval.requestId !== wasApproval) island.alert(State.pendingApproval.questions ? "question" : "approval");
+    else if (!State.pendingApproval && (State.view === "approval" || State.view === "question")) island.setView(State.defaultView());
+    State.notify();
+  });
+}

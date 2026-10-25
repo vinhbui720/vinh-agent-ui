@@ -1,0 +1,24 @@
+# One project, one command: docker compose up -d / docker compose down -v --rmi all
+# stt: Speaches (faster-whisper) -> POST /v1/audio/transcriptions   (host 127.0.0.1:8000)
+# tts: VieNeu-TTS (Vietnamese + en/vi mix) -> POST /v1/audio/speech (host 127.0.0.1:8001)
+# Bound to localhost only; expose with `tailscale serve` (see README.md). No auth on purpose.
+name: coucou-voice
+services:
+  stt:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda   # TODO agent: pin an exact tag
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["hf:/home/ubuntu/.cache/huggingface/hub"]
+    environment:
+      WHISPER__TTL: "-1"            # keep model loaded
+    deploy: &gpu
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+    restart: unless-stopped
+  tts:
+    image: pnnbao/vieneu-tts:latest   # TODO agent: verify (see README step 3), pin tag
+    ports: ["127.0.0.1:8001:23333"]   # TODO agent: confirm container port + /v1/audio/speech path
+    volumes: ["hf2:/root/.cache/huggingface"]
+    deploy: *gpu
+    restart: unless-stopped
+volumes: { hf: {}, hf2: {} }

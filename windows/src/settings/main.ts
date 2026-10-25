@@ -793,6 +793,10 @@ const INTEGRATIONS: IntegrationDef[] = [
     fields: [{ key: "resend-api-key", label: N_("API key"), placeholder: "re_…", secret: true }] },
   { id: "integration_notion", name: "Notion", color: "#8C8C8C",
     fields: [{ key: "notion-api-key", label: N_("Integration token"), placeholder: "ntn_…", secret: true }] },
+  { id: "integration_obsidian", name: "Obsidian", color: "#7C3AED",
+    fields: [{ key: "obsidian-vault", label: N_("Vault folder"), placeholder: "~/Documents/Obsidian Vault", secret: false }] },
+  { id: "agent_hermes", name: "Hermes", color: "#C084FC",
+    fields: [{ key: "hermes-host", label: N_("Hermes host (SSH)"), placeholder: "vinbui@100.100.189.59", secret: false }] },
   { id: "integration_calcom", name: "Cal.com", color: "#C9956A",
     fields: [{ key: "calcom-api-key", label: N_("API key"), placeholder: "cal_…", secret: true }] },
   // Nothing to enter: Spotify is read from the OS (src-tauri/src/spotify.rs).
@@ -1345,7 +1349,7 @@ async function render() {
 
   const keys = [
     "stripe-api-key", "github-token", "gitlab-url", "gitlab-token", "gitea-url", "gitea-token", "vercel-token",
-    "n8n-url", "n8n-api-key", "resend-api-key", "notion-api-key", "calcom-api-key",
+    "n8n-url", "n8n-api-key", "resend-api-key", "notion-api-key", "obsidian-vault", "hermes-host", "calcom-api-key",
   ];
   const present: Record<string, boolean> = {};
   for (const k of keys) present[k] = (await Bridge.secretPresent(k)) ?? false;

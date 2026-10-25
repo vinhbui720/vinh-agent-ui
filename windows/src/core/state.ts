@@ -169,6 +169,9 @@ export interface Settings {
   };
 }
 
+/** Always on the island, takes no slot. */
+const ALWAYS_PILL = "integration_focus";
+
 export const DEFAULT_SETTINGS: Settings = {
   soundEnabled: true,
   soundVolume: 0.12,
@@ -236,6 +239,8 @@ class AppState {
   /** OpenCode v2 (island/opencode.ts): its running sessions, the one shown, requests waiting. */
   opencode: { sessions: OpenCodeSession[]; pending: OpenCodePermission[]; selected: string | null; error: string; lines: string[]; directory: string; panel: boolean } =
     { sessions: [], pending: [], selected: localStorage.getItem("ocSel"), error: "", lines: [], directory: localStorage.getItem("ocDir") ?? "", panel: false };
+  /** Obsidian pill: the calendar and to-do (true) or Ask Hermes (false). */
+  obsidianPlan = true;
   get chatPill(): string {
     return this.focusId ?? this.mainPillId;
   }
@@ -416,7 +421,7 @@ class AppState {
    */
   isKept(id: string): boolean {
     const d = sanitizeDeclared(this.settings, this.os);
-    return id === d.mainPill || d.activeIntegrations.includes(id);
+    return id === d.mainPill || id === ALWAYS_PILL || d.activeIntegrations.includes(id);
   }
 
   /**
@@ -429,7 +434,7 @@ class AppState {
     this.settings.mainPill = d.mainPill;
     this.settings.activeIntegrations = d.activeIntegrations;
     for (const def of availablePills(this.os)) {
-      const shouldLoad = def.id === d.mainPill || d.activeIntegrations.includes(def.id);
+      const shouldLoad = def.id === d.mainPill || def.id === ALWAYS_PILL || d.activeIntegrations.includes(def.id);
       const idx = this.tasks.findIndex((t) => t.id === def.id);
       if (shouldLoad && idx < 0) this.tasks.push(taskFor(def, this.settings.pillColors));
       const busy = idx >= 0 && (this.tasks[idx].state !== "idle" || this.tasks[idx].steps.length > 0);

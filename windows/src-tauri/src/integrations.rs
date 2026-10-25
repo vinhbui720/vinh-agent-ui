@@ -73,7 +73,8 @@ pub fn start(app: AppHandle) {
     spawn(app.clone(), "integration_gitea", 7, 300, poll_gitea);
     spawn_github_loops(app.clone());
     spawn(app.clone(), "integration_calcom", 8, 300, poll_calcom);
-    spawn(app, "integration_notion", 9, 300, poll_notion);
+    spawn(app.clone(), "integration_notion", 9, 300, poll_notion);
+    spawn(app, "integration_obsidian", 4, 60, poll_obsidian);
 }
 
 /// True when the user has this integration switched on in settings.
@@ -123,6 +124,7 @@ pub async fn poll_once(app: AppHandle, id: &str) {
         "integration_n8n" => poll_n8n(app).await,
         "integration_resend" => poll_resend(app).await,
         "integration_notion" => poll_notion(app).await,
+        "integration_obsidian" => poll_obsidian(app).await,
         "integration_calcom" => poll_calcom(app).await,
         _ => {}
     }
@@ -1030,6 +1032,78 @@ fn parse_notion_page(obj: &Value) -> Option<Value> {
         "lastEditedAt": obj.get("last_edited_time").and_then(Value::as_str)?,
         "url": obj.get("url").and_then(Value::as_str).unwrap_or("https://notion.so"),
     }))
+}
+
+// ── Obsidian ──────────────────────────────────────────────────────────────────
+// Read-only: the vault is a folder of .md files, so no plugin, key or network is
+// needed. The folder is set in Settings, else the vault Obsidian itself has open.
+// ponytail: newest-by-mtime scan of the whole folder each minute; fine for a few
+// thousand notes, add a cache if a vault gets huge.
+
+pub fn obsidian_vault() -> Option<std::path::PathBuf> {
+    if let Some(p) = secrets::get("obsidian-vault") {
+        let p = p.trim();
+        return match p.strip_prefix("~/") {
+            Some(rest) => std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(rest)),
+            None => Some(p.into()),
+        };
+    }
+    let base = std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))?;
+    let cfg: Value = serde_json::from_slice(&std::fs::read(base.join("obsidian/obsidian.json")).ok()?).ok()?;
+    let vaults = cfg.get("vaults")?.as_object()?.values();
+    let pick = vaults.clone().find(|v| v.get("open") == Some(&json!(true))).or_else(|| vaults.clone().next())?;
+    pick.get("path")?.as_str().map(Into::into)
+}
+
+fn newest_notes(dir: &std::path::Path, out: &mut Vec<(u64, std::path::PathBuf)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let path = e.path();
+        if e.file_name().to_string_lossy().starts_with('.') {
+            continue; // .obsidian, .trash, .git
+        }
+        let Ok(kind) = e.file_type() else { continue };
+        if kind.is_dir() {
+            newest_notes(&path, out);
+        } else if path.extension().is_some_and(|x| x == "md") {
+            let ms = e.metadata().and_then(|m| m.modified()).ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis() as u64);
+            out.push((ms, path));
+        }
+    }
+}
+
+fn obsidian_encode(s: &str) -> String {
+    s.bytes().map(|b| match b {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => (b as char).to_string(),
+        _ => format!("%{b:02X}"),
+    }).collect()
+}
+
+async fn poll_obsidian(app: AppHandle) {
+    let Some(vault) = obsidian_vault() else { return };
+    let root = vault.clone();
+    let notes = tokio::task::spawn_blocking(move || {
+        let mut all = Vec::new();
+        newest_notes(&root, &mut all);
+        all.sort_by(|a, b| b.0.cmp(&a.0));
+        all.truncate(3);
+        all
+    }).await.unwrap_or_default();
+    let name = vault.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let pages: Vec<Value> = notes.iter().filter_map(|(ms, path)| {
+        let rel = path.strip_prefix(&vault).ok()?.with_extension("");
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        Some(json!({
+            "id": rel,
+            "title": path.file_stem()?.to_string_lossy(),
+            "lastEditedAt": ms,
+            "url": format!("obsidian://open?vault={}&file={}", obsidian_encode(&name), obsidian_encode(&rel)),
+        }))
+    }).collect();
+    emit(&app, IntegrationUpdate { id: "integration_obsidian", data: json!({ "pages": pages }), error: None, event: None });
 }
 
 // ── Cal.com ───────────────────────────────────────────────────────────────────

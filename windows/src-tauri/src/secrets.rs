@@ -23,6 +23,8 @@ pub const KNOWN_KEYS: &[&str] = &[
     "stripe-api-key",
     "resend-api-key",
     "notion-api-key",
+    "obsidian-vault",
+    "hermes-host",
     "calcom-api-key",
     // « OK Coucou »'s answers in an ElevenLabs voice.
     "elevenlabs-api-key",

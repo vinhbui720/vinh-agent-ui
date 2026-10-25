@@ -1,0 +1,9 @@
+[Unit]
+Description=Voice token endpoint (local)
+[Service]
+EnvironmentFile=%h/voice-agent/keys.env
+WorkingDirectory=%h/voice-agent
+ExecStart=%h/voice-agent/.venv/bin/python tokensrv.py
+Restart=always
+[Install]
+WantedBy=default.target

@@ -115,6 +115,7 @@ export const STATE_SOUND: Partial<Record<BotStateName, string>> = {
 const EMOTE_EYE: Record<BotEmoteName, EyeShape> = {
   love: "heart", surprised: "dot", proud: "star", wink: "wink",
   yawn: "tired", happy: "happy", annoyed: "line",
+  angry: "line", // ponytail: placeholder eyes; the real look is the vector anim src/mochi/anims/angry.ts, wired later
 };
 
 // ── Small helpers ─────────────────────────────────────────────────────────────

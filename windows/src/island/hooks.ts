@@ -15,6 +15,7 @@ import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
 import { setClaudePlanUsage, storedClaudePlanUsage } from "../views/usage";
 import { N_, t } from "../i18n/i18n";
+import { speakAloud } from "./opencode";
 
 const CLAUDE_ID = "integration_claude";
 const CURSOR_ID = "agent_cursor";
@@ -444,6 +445,26 @@ function handleHook(island: Island, payload: HookPayload) {
       State.updateTask(agentId, "idle");
       State.setPillBadge(agentId, null);
       break;
+
+    case "Say": {
+      // An agent speaks first (Hermes: a reminder, a briefing): a card on its pill, read aloud.
+      // `coucou-hook --agent hermes` with {"hook_event_name":"Say","message":"…"}.
+      const said = toOneLine(payload.message ?? "");
+      if (!said) break;
+      ensurePill();
+      supersedeStop();
+      State.updateTask(agentId, "finished");
+      State.appendStep(agentId, said);
+      const t = State.tasks.find((x) => x.id === agentId);
+      if (t) t.finalLine = said;
+      // The card shows one line; the whole message goes to the pill's chat too.
+      (State.chats[agentId] ??= []).push({ id: Date.now(), role: "assistant", content: String(payload.message) });
+      Sound.play("finish");
+      speakAloud(said);
+      if (!State.pendingApproval) surface("finished", true);
+      else State.setPillBadge(agentId, "finished");
+      break;
+    }
 
     case "StopFailure":
       supersedeStop();

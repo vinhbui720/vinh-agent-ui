@@ -72,6 +72,8 @@ export async function flowSettingsPage(page: HTMLElement, ctx: HubContext) {
   const keysCard = card(
     row(t("Hold a key to dictate anywhere"), null, toggle(prefs.enabled, (on) => void ctx.setPrefs((p) => (p.enabled = on)))),
     divider(),
+    row(t("The dictation key and the pill's microphone"), t("Live call: talk with the voice agent. Paste: the older dictation that types what you say."), segmented([["call", t("Live call")], ["local", t("Paste")]], prefs.dictation, (v) => void ctx.setPrefs((p) => (p.dictation = v)))),
+    divider(),
     status.keys === "wayland"
       ? row(t("Hold to dictate"), null, keyKeycap("wayland", status.platform))
       : row(t("Hold to dictate"), prefs.key === "right_alt" ? t("On a keyboard with AltGr, the right Alt types characters: pick another key.") : null,
