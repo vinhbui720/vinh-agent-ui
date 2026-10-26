@@ -44,6 +44,7 @@ mod voice;
 mod youtube;
 #[cfg(windows)]
 mod webview_drop;
+mod whatsapp;
 
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -111,6 +112,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.phone_answers = current.phone_answers;
         settings.phone_diffs = current.phone_diffs;
         settings.phone_usage = current.phone_usage;
+        settings.phone_recap = current.phone_recap;
         settings.phone_services = current.phone_services.clone();
         settings.phone_relay = current.phone_relay;
         settings.phone_relay_url = current.phone_relay_url.clone();
@@ -136,6 +138,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     integrations::settings_saved(&app, &settings.active_integrations);
     spotify::sync(&app, &settings.active_integrations);
     youtube::sync(&app, &settings.active_integrations);
+    whatsapp::sync(&settings.active_integrations);
     if shortcuts_changed {
         shortcuts::apply(&app, &settings.shortcuts);
     }
@@ -940,10 +943,13 @@ pub fn run() {
             phone_link::phone_link_send_diff,
             phone_link::phone_usage_status,
             phone_link::phone_usage_set_enabled,
+            phone_link::phone_recap_status,
+            phone_link::phone_recap_set_enabled,
             phone_link::phone_relay_status,
             phone_link::phone_relay_set,
             phone_link::phone_relay_set_access,
             phone_link::phone_link_publish_usage,
+            phone_link::phone_link_publish_recap,
             phone_link::phone_services_status,
             phone_link::phone_services_set,
             phone_link::phone_link_publish_services,
@@ -980,6 +986,17 @@ pub fn run() {
             spotify::spotify_installed,
             youtube::youtube_refresh,
             youtube::youtube_control,
+            whatsapp::whatsapp_island,
+            whatsapp::whatsapp_open,
+            whatsapp::whatsapp_close,
+            whatsapp::whatsapp_send,
+            whatsapp::whatsapp_ignore,
+            whatsapp::whatsapp_unignore,
+            whatsapp::whatsapp_settings,
+            whatsapp::whatsapp_set_options,
+            whatsapp::whatsapp_save_gateway,
+            whatsapp::whatsapp_test,
+            whatsapp::whatsapp_install,
             flow::flow_status,
             flow::flow_set_prefs,
             flow::flow_history,
@@ -1020,6 +1037,7 @@ pub fn run() {
             update::update_shown,
             update::update_show,
             update::update_later,
+            tray::tray_update_hint,
             update::update_dismiss,
             update::update_install,
             update::update_open_page,
@@ -1067,6 +1085,8 @@ pub fn run() {
             integrations::start(handle.clone());
             spotify::sync(&handle, &loaded.active_integrations);
             youtube::sync(&handle, &loaded.active_integrations);
+            // WhatsApp (experimental): nothing runs unless it is turned on and its pill is active.
+            whatsapp::start(&handle, &loaded.active_integrations);
             shortcuts::apply(&handle, &loaded.shortcuts);
             // New versions: nothing goes to GitHub until the user agrees (update.rs).
             update::start(handle.clone());
@@ -1088,6 +1108,8 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 phone_link::stop_on_exit(app);
                 notes::shutdown(app);
+                // GOWA started by Coucou stops with it; the conversations were only in memory.
+                whatsapp::shutdown();
             }
         });
 }

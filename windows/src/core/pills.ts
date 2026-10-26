@@ -147,6 +147,10 @@ export const PILL_CATALOG: readonly PillDefinition[] = [
   // Whatever plays in the browser, over MPRIS (src-tauri/src/youtube.rs).
   { id: "integration_youtube", name: "YouTube", color: "#FF0033", category: "service",
     subtitle: N_("Integration"), source: "n8n", support: "linux", connect: none },
+  // WhatsApp (experimental) through a gateway on this computer (src-tauri/src/whatsapp): set up,
+  // linked and turned on in Settings → Integrations → WhatsApp, off until then.
+  { id: "integration_whatsapp", name: "WhatsApp", color: "#25D366", category: "service",
+    subtitle: N_("Integration"), source: "n8n", support: "yes", connect: none },
 ];
 
 /** The always-on pill unless the user picks another workspace tool. */
