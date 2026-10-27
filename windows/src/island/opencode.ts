@@ -108,7 +108,33 @@ async function poll(force = false) {
         .map((m) => m.text.trim().split("\n")[0].slice(0, 90));
     }
     applyToPill(pill.id);
-    speakFinished(sessions, new Map([...perSession, ...departed]));
+    const said = speakFinished(sessions, new Map([...perSession, ...departed]));
+    // Streaming: the card is up while it is read (each sentence keeps it open), like a Hermes notice.
+    if (said && island && !State.pendingApproval && !island.hovered) {
+      const id = State.tasks.some((x) => x.id === sessionPill(said.sid)) ? sessionPill(said.sid) : pill.id;
+      const t = State.tasks.find((x) => x.id === id);
+      if (t) {
+        t.finalLine = said.text.slice(0, 200);
+        State.setFocus(id);
+        island.alert("finished");
+        noticeShown();
+      }
+    }
+    // A session that just stopped: its answer shows as a finished notice, like Hermes'.
+    for (const [id, m] of departed) {
+      const last = [...m].reverse().find((x) => x.role === "assistant" && x.text.trim());
+      if (!last || !island) continue;
+      const one = last.text.trim().replace(/\s+/g, " ").slice(0, 200);
+      State.updateTask(pill.id, "finished");
+      State.appendStep(pill.id, one);
+      pill.finalLine = one;
+      if (!State.pendingApproval) {
+        State.setFocus(pill.id);
+        island.alert("finished");
+        noticeShown();
+      } else State.setPillBadge(pill.id, "finished");
+      void id;
+    }
     syncSessionPills(sessions, perSession);
     syncApproval();
     State.notify();
@@ -157,13 +183,23 @@ let generation = 0; // Stop bumps it: clips queued before it are dropped
 let talking = 0; // clips fetched or playing
 
 export const speechOn = () => (localStorage.getItem("ocSpeak") ?? ((window as any).__COUCOU_WEB__ ? "0" : "1")) !== "0";
+import { noticeShown } from "./notices";
+/** Voice volume, 0 to 1.5 (Settings → General). Read at every chunk, so a change is heard at once. */
+export const voiceVolume = () => { const v = Number(localStorage.getItem("ocVolume")); return Number.isFinite(v) && localStorage.getItem("ocVolume") != null ? Math.max(0, Math.min(1.5, v)) : 1; };
 export const isSpeaking = () => talking > 0;
+/** Called when the last queued clip has finished (not when Stop cut it off). */
+let speechEnded: (() => void) | null = null;
+export const onSpeechEnded = (f: () => void) => { speechEnded = f; };
 
 function silence() {
   generation++;
   queue = Promise.resolve();
   playing?.pause();
   playing = null;
+  for (const f of cancels) f();
+  cancels.clear();
+  for (const src of sources) { try { src.stop(); } catch { /* already over */ } }
+  sources.clear();
   talking = 0;
 }
 
@@ -222,9 +258,10 @@ export function softEnd(text: string, from: number): number {
  * (or not running) has stopped: its unread rest is read now, which is what used to be missed.
  */
 export function speakFinished(
-  sessions: { id: string; running: boolean }[],
+  sessions: { id: string; running: boolean; title?: string; directory?: string }[],
   msgs: Map<string, { id: string; role: string; text: string }[]>,
-) {
+): { sid: string; text: string } | null {
+  let said: { sid: string; text: string } | null = null;
   const first = !primed;
   primed = true;
   for (const [sid, list] of msgs) {
@@ -251,42 +288,132 @@ export function speakFinished(
     if (running && text.length < MIN && text.length > 0) continue;
     st.offset = cut;
     st.fence = trial.fence;
-    if (text && speechOn()) enqueue(text);
+    const s = sessions.find((x) => x.id === sid);
+    const name = s ? s.title || s.directory?.split("/").pop() || "" : "";
+    if (text && speechOn()) { enqueue(text, `OpenCode ${name}`.trim()); said = { sid, text }; }
   }
+  return said;
 }
 
 /** Reads a message aloud (same voice, mute and stop rules as OpenCode's answers). */
-export function speakAloud(text: string) {
+export function speakAloud(text: string, who?: string) {
   const say = speakable(text);
-  if (say) enqueue(say);
+  if (say) enqueue(say, who);
 }
 
-function enqueue(text: string) {
-  if (!speechOn()) return; // muted: no request to ElevenLabs at all
+let lastWho = "";
+// A text is read sentence by sentence, each one asked of the voice server only when the audio before it is
+// nearly used up: the server's GPU works in bursts and rests while you listen.
+const MAXCLIP = 160;
+function enqueue(text: string, who = "") {
+  if (!speechOn()) return; // muted: no request at all
+  const parts: string[] = [];
+  for (const sent of text.match(/[^.!?…。！？\n]+[.!?…。！？]*["')\]]*\s*/g) ?? [text]) {
+    const last = parts.length - 1;
+    if (last >= 0 && parts[last].length < 40 && parts[last].length + sent.length <= MAXCLIP) parts[last] += sent; // tiny ones ride along
+    else parts.push(sent);
+  }
+  for (let p of parts) {
+    p = p.trim();
+    while (p.length > MAXCLIP) {
+      const cut = p.lastIndexOf(" ", MAXCLIP);
+      const at = cut > 60 ? cut : MAXCLIP;
+      enqueue1(p.slice(0, at).trim(), who);
+      p = p.slice(at).trim();
+    }
+    if (p) enqueue1(p, who);
+  }
+}
+
+// Streamed playback. The voice machine makes audio ~2.5x faster than it plays, so chunks are pulled only
+// while less than AHEAD seconds are buffered: its GPU works in short bursts and rests the rest of the time.
+const AHEAD = 4; // seconds of audio kept queued
+const RATE = 24000;
+let ctx: AudioContext | null = null;
+let gain: GainNode | null = null;
+let cursor = 0; // when the next chunk starts, in ctx time
+const sources = new Set<AudioBufferSourceNode>();
+const cancels = new Set<() => void>();
+
+function pcm(b64: string): AudioBuffer {
+  const bin = atob(b64);
+  const n = bin.length >> 1;
+  const buf = (ctx ??= new AudioContext()).createBuffer(1, n, RATE);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    const v = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8);
+    ch[i] = (v > 32767 ? v - 65536 : v) / 32768;
+  }
+  return buf;
+}
+
+/** Streams one text into the player. Resolves once it is all queued, to a promise of when it has been heard; null when no stream could start. */
+async function playStream(text: string, mine: number): Promise<{ heard: Promise<void> } | null> {
+  ctx ??= new AudioContext();
+  // Nothing is asked of the server until the audio already queued is about to run out.
+  for (let w = cursor - ctx.currentTime - AHEAD; w > 0 && mine === generation; w = cursor - ctx.currentTime - AHEAD) {
+    await new Promise((r) => setTimeout(r, Math.min(w, 0.5) * 1000));
+  }
+  if (mine !== generation) return { heard: Promise.resolve() };
+  const id = await Bridge.ttsOpen(text).catch(() => null);
+  if (!id) return null;
+  if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+  let dead = mine !== generation;
+  const stop = () => { dead = true; void Bridge.ttsClose(id).catch(() => {}); };
+  cancels.add(stop);
+  let first = true;
+  let lastEnd: Promise<void> = Promise.resolve();
+  while (!dead) {
+    const chunk = await Bridge.ttsPull(id).catch(() => null);
+    if (dead || !chunk) break;
+    const buf = pcm(chunk);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    if (!gain) { gain = ctx.createGain(); gain.connect(ctx.destination); }
+    gain.gain.value = voiceVolume();
+    src.connect(gain);
+    cursor = Math.max(cursor, ctx.currentTime + (first ? 0.05 : 0)) ;
+    src.start(cursor);
+    if (first) { first = false; void Bridge.log("tts streaming"); }
+    cursor += buf.duration;
+    sources.add(src);
+    lastEnd = new Promise((r) => { src.onended = () => { sources.delete(src); r(); }; });
+  }
+  cancels.delete(stop);
+  return { heard: dead ? Promise.resolve() : lastEnd };
+}
+
+function enqueue1(text: string, who = "") {
+  // Clips play in the order they arrived; the speaker is named when it changes ("Hermes. …").
+  if (who && who !== lastWho) text = `${who}. ${text}`;
+  lastWho = who;
   const mine = generation;
   talking++;
   State.notify();
-  const clip = Bridge.opencodeTts(text).then((mp3) => {
-    if (!mp3) return null;
-    const a = new Audio(`data:audio/${mp3.startsWith("UklGR") ? "wav" : "mpeg"};base64,${mp3}`); // decoded while the previous clip still plays
-    a.preload = "auto";
-    return a;
-  }).catch(() => null);
-  queue = queue.then(() => play(clip, mine)).catch(() => {}).then(() => {
+  // One request at a time, and a step is done once its audio is queued (the next may be asked for early);
+  // the clip counts as read when its audio has been heard.
+  const step = queue.then(async (): Promise<Promise<void>> => {
+    if (mine !== generation || !speechOn()) return Promise.resolve();
+    const streamed = await playStream(text, mine);
+    if (streamed) return streamed.heard;
+    // No stream (ElevenLabs, or the local server is off): the whole clip, as before.
+    const mp3 = await Bridge.opencodeTts(text).catch(() => null);
+    if (!mp3 || mine !== generation) return Promise.resolve();
+    const a = new Audio(`data:audio/${mp3.startsWith("UklGR") ? "wav" : "mpeg"};base64,${mp3}`);
+    playing = a;
+    a.volume = Math.min(1, voiceVolume());
+    await new Promise<void>((done) => {
+      a.onended = a.onerror = a.onpause = () => done();
+      a.play().catch(() => done());
+    });
+    if (playing === a) playing = null;
+    return Promise.resolve();
+  }).catch((): Promise<void> => Promise.resolve());
+  queue = step.then(() => {});
+  void step.then((heard) => heard).then(() => {
     if (mine !== generation) return; // Stop already reset the count
-    if (--talking <= 0) { talking = 0; State.notify(); }
+    if (--talking <= 0) { talking = 0; lastWho = ""; State.notify(); speechEnded?.(); }
   });
-}
-
-async function play(pending: Promise<HTMLAudioElement | null>, mine: number) {
-  const audio = await pending;
-  if (!audio || mine !== generation || !speechOn()) return;
-  playing = audio;
-  await new Promise<void>((done) => {
-    audio.onended = audio.onerror = audio.onpause = () => done();
-    audio.play().catch(() => done());
-  });
-  if (playing === audio) playing = null;
 }
 
 /** A waiting OpenCode request becomes the island's own approval card (Allow / Deny). */

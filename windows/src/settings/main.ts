@@ -4,7 +4,7 @@
 // island's settings are drawn here, one Notch page at a time.
 
 import "./settings.css";
-import { Bridge, onEvent, type HookPreview, type HookStatus, type ShortcutsReport } from "../core/bridge";
+import { Bridge, onEvent, type ShortcutsReport } from "../core/bridge";
 import { CUSTOM_SERVER_KEY, providerDef, urlExposure } from "../core/providers";
 import {
   ISLAND_SHORTCUTS, SHORTCUTS, SHORTCUT_TEXT, activeKeys, displayKeys, duplicates, effective,
@@ -26,7 +26,7 @@ import { whatsappSection } from "./whatsapp";
 import { WHATSAPP_ID } from "../core/whatsapp";
 import { updateRows, updatesListener } from "./updates";
 import { colorDot } from "./colors";
-import { renderDiff, statusDot } from "./parts";
+import { statusDot } from "./parts";
 import {
   LANGUAGES, N_, isRtl, onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t, tn,
 } from "../i18n/i18n";
@@ -64,352 +64,6 @@ function toggle(on: boolean, onChange: (v: boolean) => void): HTMLElement {
     onChange(next);
   });
   return el;
-}
-
-// ── Changes to Claude Code's settings.json ────────────────────────────────────
-
-/** One kind of change to ~/.claude/settings.json, with the words that go with it. */
-interface Change {
-  preview: (install: boolean) => Promise<HookPreview | null>;
-  apply: (install: boolean, fingerprint: string) => Promise<string | null>;
-  installText: string;
-  removeText: string;
-  installButton: string;
-  removeButton: string;
-  /** The note once written; `backup` is "" when there was no file to back up. */
-  done: (backup: string) => string;
-}
-
-const HOOKS_CHANGE: Change = {
-  preview: Bridge.hooksPreview,
-  apply: Bridge.hooksApply,
-  get installText() { return t("This is exactly what will change in your settings.json. Your own hooks are left untouched."); },
-  get removeText() { return t("This removes Coucou's entries only. Your own hooks are left untouched."); },
-  get installButton() { return t("Back up and write"); },
-  get removeButton() { return t("Back up and remove"); },
-  done: (backup) => backup
-    ? t("Done. Previous settings saved as {backup}. Open a new Claude Code session to pick the hooks up.", { backup })
-    : t("Done. Open a new Claude Code session to pick the hooks up."),
-};
-
-const STATUS_LINE_CHANGE: Change = {
-  preview: Bridge.statusLinePreview,
-  apply: Bridge.statusLineApply,
-  get installText() { return t("This is exactly what will change: only the status line. If you already have one it keeps working, Coucou's relay runs it for you."); },
-  get removeText() { return t("This puts your previous status line back, or removes the entry if there was none."); },
-  get installButton() { return t("Back up and write"); },
-  get removeButton() { return t("Back up and remove"); },
-  done: (backup) => backup
-    ? t("Done. Previous settings saved as {backup}. The numbers appear after the next reply of a Claude Code session.", { backup })
-    : t("Done. The numbers appear after the next reply of a Claude Code session."),
-};
-
-/**
- * Shows the diff of a change in `body` and writes it only after an explicit
- * click, and only if settings.json still matches the diff that was shown.
- * `back` redraws the section; `applied` runs a moment after a successful write.
- */
-async function reviewChange(
-  body: HTMLElement,
-  change: Change,
-  install: boolean,
-  back: () => void,
-  applied: () => void,
-) {
-  let preview;
-  try {
-    preview = await change.preview(install);
-  } catch (err) {
-    // An unreadable or invalid settings.json stops here rather than being
-    // treated as empty and written over.
-    clear(body);
-    body.append(
-      h("div", { class: "notice err", text: String(err).replace(/^Error:\s*/, "") }),
-      h("div", { class: "row" }, h("button", { text: t("Back"), onclick: back })),
-    );
-    return;
-  }
-  if (!preview) return;
-  clear(body);
-  body.append(
-    h("div", { class: "hint", text: install ? change.installText : change.removeText }),
-    renderDiff(preview.diff),
-    h("div", { class: "row" },
-      h("span", {
-        class: "path",
-        text: preview.backup
-          ? t("Backup → {path}", { path: preview.backup })
-          : t("No settings.json yet — nothing to back up."),
-      }),
-    ),
-  );
-  const confirm = h("button", {
-    class: install ? "primary" : "danger",
-    text: install ? change.installButton : change.removeButton,
-  });
-  confirm.addEventListener("click", async () => {
-    confirm.disabled = true;
-    try {
-      const backup = await change.apply(install, preview.fingerprint);
-      clear(body);
-      body.append(h("div", { class: "notice ok", text: change.done(backup ?? "") }));
-      window.setTimeout(applied, 2600);
-    } catch (err) {
-      confirm.disabled = false;
-      body.append(h("div", { class: "notice err", text: t("Could not write: {error}", { error: String(err) }) }));
-    }
-  });
-  body.append(h("div", { class: "row" }, confirm, h("button", { text: t("Cancel"), onclick: back })));
-}
-
-// ── Claude Code section ───────────────────────────────────────────────────────
-
-function claudeSection(status: HookStatus): HTMLElement {
-  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
-  const section = h(
-    "section",
-    {},
-    h("h2", {}, statusDot(status.installed), h("span", { text: "Claude Code" })),
-    body,
-  );
-
-  const redraw = () => {
-    clear(body);
-    draw();
-  };
-  const rebuild = async () => {
-    const fresh = await Bridge.hooksStatus();
-    if (fresh) Object.assign(status, fresh);
-    redraw();
-    const head = section.querySelector("h2")!;
-    clear(head);
-    head.append(statusDot(status.installed), h("span", { text: "Claude Code" }));
-  };
-
-  function draw() {
-    body.append(
-      h("div", {
-        class: "hint",
-        text: status.installed
-          ? t("Coucou is hooked into your Claude Code sessions. Tool calls, questions and permission requests show up in the island, and you can answer them there.")
-          : t("Install the hooks to see your Claude Code sessions in the island and approve permissions without leaving what you are doing."),
-      }),
-      h("div", { class: "row" },
-        h("label", { text: "settings.json" }),
-        h("span", { class: "path", text: status.settingsPath }),
-      ),
-      h("div", { class: "row" },
-        h("label", { text: t("Relay") }),
-        h("span", { class: "path", text: status.hookPath }),
-        statusDot(status.hookReady),
-      ),
-    );
-
-    if (!status.hookReady) {
-      body.append(h("div", {
-        class: "notice warn",
-        text: t("coucou-hook.exe is not in place yet. Restart Coucou; if it still fails, build it with `cargo build -p coucou-hook`."),
-      }));
-    }
-
-    const actions = h("div", { class: "row" });
-    const install = h("button", {
-      class: "primary",
-      text: status.installed ? t("Reinstall hooks…") : t("Install hooks…"),
-      onclick: () => void reviewChange(body, HOOKS_CHANGE, true, redraw, () => void rebuild()),
-    });
-    // Writing hook commands that point at a relay which isn't there would give
-    // every Claude Code session a broken hook and nothing to show for it.
-    if (!status.hookReady) {
-      install.disabled = true;
-      install.title = t("The relay isn't installed yet.");
-    }
-    actions.append(install);
-    if (status.installed) {
-      actions.append(h("button", {
-        class: "danger",
-        text: t("Uninstall hooks…"),
-        onclick: () => void reviewChange(body, HOOKS_CHANGE, false, redraw, () => void rebuild()),
-      }));
-    }
-    body.append(actions);
-  }
-
-  draw();
-  return section;
-}
-
-// ── Plan usage section ────────────────────────────────────────────────────────
-
-/**
- * The 5-hour and weekly limits in the island's header. They come from Claude
- * Code's status line, so the relay has to be the status line first: turning the
- * switch on without it starts the install, and the switch only stays on once
- * that has been confirmed. A status line the user had keeps working.
- */
-const PLAN_SETTINGS_TEXT = {
-  get claude() { return t("Shows your Claude plan usage (5-hour and weekly limits) in the island's header. Coucou adds a status line relay in ~/.claude/settings.json. If you already have a status line, it keeps working as before. Pro and Max plans only."); },
-  get claudeCli() { return t("The numbers come from the Claude Code command-line tool. The Claude desktop app does not report them, so the gauge stays empty if you only use the desktop app."); },
-  get showClaude() { return t("Show in notch"); },
-  get codex() { return t("Shows your Codex plan usage (weekly limit and free resets left) in the island's header. Coucou asks the Codex CLI (codex app-server) when the pill shows; nothing is installed. Codex must be signed in with ChatGPT."); },
-  get showCodex() { return t("Show Codex plan in the notch"); },
-};
-
-function planSection(status: HookStatus): HTMLElement {
-  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
-  const section = h("section", {}, h("h2", {}, h("span", { text: t("Plan usage") })), body);
-
-  const redraw = () => {
-    clear(body);
-    draw();
-  };
-  const rebuild = async () => {
-    const fresh = await Bridge.hooksStatus();
-    if (fresh) Object.assign(status, fresh);
-    settings.planRelayInstalled = status.planRelayInstalled;
-    // Cancelled or failed: a switch that was waiting for the install falls back.
-    if (!status.planRelayInstalled) settings.showPlanInNotch = false;
-    redraw();
-  };
-
-  function draw() {
-    // The switch shows "on" while the install it asked for is being reviewed.
-    const sw = toggle(settings.showPlanInNotch, (on) => {
-      if (!on) {
-        settings.showPlanInNotch = false;
-        void save();
-      } else if (status.planRelayInstalled) {
-        settings.showPlanInNotch = true;
-        void save();
-      } else {
-        // Turned on before the relay is in: install it first; it stays on once confirmed.
-        void reviewChange(body, STATUS_LINE_CHANGE, true, () => void rebuild(), () => {
-          settings.planRelayInstalled = true;
-          settings.showPlanInNotch = true;
-          void save().then(rebuild);
-        });
-      }
-    });
-    body.append(
-      h("div", {
-        class: "hint",
-        text: PLAN_SETTINGS_TEXT.claude,
-      }),
-      h("div", { class: "hint", text: PLAN_SETTINGS_TEXT.claudeCli }),
-      h("div", { class: "row" }, h("label", { text: PLAN_SETTINGS_TEXT.showClaude }), sw),
-      h("div", { class: "row" },
-        h("label", { text: t("Relay") }),
-        statusDot(status.planRelayInstalled),
-        h("span", { class: "hint", text: status.planRelayInstalled ? t("installed") : t("not installed") }),
-        status.planRelayInstalled
-          ? h("button", {
-              class: "danger",
-              text: t("Uninstall relay…"),
-              onclick: () => void reviewChange(body, STATUS_LINE_CHANGE, false, redraw, () => void rebuild()),
-            })
-          : h("button", {
-              class: "primary",
-              text: t("Install relay…"),
-              onclick: () => void reviewChange(body, STATUS_LINE_CHANGE, true, redraw, () => void rebuild()),
-            }),
-      ),
-      // Codex: nothing to install, Coucou asks the Codex CLI when the pill shows.
-      h("div", { class: "hint", text: PLAN_SETTINGS_TEXT.codex }),
-      h("div", { class: "row" },
-        h("label", { text: PLAN_SETTINGS_TEXT.showCodex }),
-        toggle(settings.showCodexPlanInNotch, (on) => {
-          settings.showCodexPlanInNotch = on;
-          void save();
-        }),
-      ),
-    );
-  }
-
-  draw();
-  return section;
-}
-
-// ── Claude API section ────────────────────────────────────────────────────────
-
-const MODELS: [string, string][] = [
-  ["claude-opus-5", "Claude Opus 5"],
-  ["claude-sonnet-5", "Claude Sonnet 5"],
-  ["claude-haiku-4-5", "Claude Haiku 4.5"],
-];
-
-function apiSection(hasKey: boolean): HTMLElement {
-  const dot = statusDot(hasKey);
-  const state = h("span", { class: "hint", text: hasKey ? t("Key saved in the {store}.", { store: KEY_STORE }) : t("No key yet — the chat needs one.") });
-
-  const field = h("input", {
-    type: "password",
-    placeholder: hasKey ? `••••••••••••  ${t("(stored)")}` : "sk-ant-...",
-    style: "flex:1 1 auto;min-width:0",
-    autocomplete: "off",
-    spellcheck: "false",
-  }) as HTMLInputElement;
-
-  const saveBtn = h("button", { class: "primary", text: t("Save key") });
-  const clearBtn = h("button", { class: "danger", text: t("Remove") });
-  const feedback = h("div", {});
-
-  async function refresh() {
-    const present = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
-    dot.style.background = present ? "#22c55e" : "#f4505e";
-    state.textContent = present
-      ? t("Key saved in the {store}.", { store: KEY_STORE })
-      : t("No key yet — the chat needs one.");
-    field.placeholder = present ? `••••••••••••  ${t("(stored)")}` : "sk-ant-...";
-    clearBtn.style.display = present ? "" : "none";
-  }
-
-  saveBtn.addEventListener("click", async () => {
-    const value = field.value.trim();
-    if (!value) return;
-    clear(feedback);
-    try {
-      await Bridge.secretSet("anthropic-api-key", value);
-      field.value = "";
-      feedback.append(h("div", { class: "notice ok", text: t("Saved. It never touches disk.") }));
-      await refresh();
-    } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: t("Could not save: {error}", { error: String(err) }) }));
-    }
-  });
-
-  clearBtn.addEventListener("click", async () => {
-    clear(feedback);
-    try {
-      await Bridge.secretClear("anthropic-api-key");
-      feedback.append(h("div", { class: "notice ok", text: t("Key removed.") }));
-      await refresh();
-    } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: t("Could not remove: {error}", { error: String(err) }) }));
-    }
-  });
-
-  const model = h("select", {}) as HTMLSelectElement;
-  for (const [id, label] of MODELS) model.append(h("option", { value: id, text: label }));
-  if (!MODELS.some(([id]) => id === settings.model)) {
-    model.append(h("option", { value: settings.model, text: settings.model }));
-  }
-  model.value = settings.model;
-  model.addEventListener("change", () => {
-    settings.model = model.value;
-    void save();
-  });
-
-  clearBtn.style.display = hasKey ? "" : "none";
-
-  return h(
-    "section",
-    {},
-    h("h2", {}, dot, h("span", { text: "Claude" })),
-    state,
-    h("div", { class: "row" }, h("label", { text: t("API key") }), field, saveBtn, clearBtn),
-    h("div", { class: "row" }, h("label", { text: t("Model") }), model),
-    feedback,
-  );
 }
 
 // ── Active pills section ──────────────────────────────────────────────────────
@@ -996,6 +650,19 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" }, soundsFolder, reloadSounds, customCount),
     h("div", { class: "hint", text: t("Drop a file named like one of Mochi's sounds (finish.wav, approval.mp3, greet.m4a…) in the sounds folder to replace it, then Reload.") }),
     h("div", { class: "row" },
+      h("label", { text: t("Read aloud") }),
+      toggle((localStorage.getItem("ocSpeak") ?? "1") !== "0", (v) => { localStorage.setItem("ocSpeak", v ? "1" : "0"); }),
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Voice volume") }),
+      h("input", {
+        type: "range", min: "0", max: "1.5", step: "0.05",
+        value: localStorage.getItem("ocVolume") ?? "1",
+        oninput: (e: Event) => localStorage.setItem("ocVolume", (e.target as HTMLInputElement).value),
+      }),
+    ),
+    h("div", { class: "hint", text: t("Reads OpenCode and Hermes answers and notices aloud. One switch for every pill.") }),
+    h("div", { class: "row" },
       h("label", { text: t("Open on hover") }),
       toggle(settings.openOnHover, (v) => { settings.openOnHover = v; void save(); }),
     ),
@@ -1362,12 +1029,8 @@ let notchPage: PageId = "general";
 
 /** Reads what the sections of the Notch page show and draws them. */
 async function render() {
-  const status = (await Bridge.hooksStatus()) ?? {
-    installed: false, planRelayInstalled: false, settingsPath: "", hookPath: "", hookReady: false,
-  };
   const agents = await Bridge.agentHooksList();
 
-  const hasKey = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
   const shortcutReport = await Bridge.shortcutsStatus();
 
   const keys = [
@@ -1406,8 +1069,8 @@ async function render() {
   const sections: Partial<Record<PageId, () => HTMLElement[]>> = {
     general: () => [generalSection()],
     pills: () => [activePillsSection(connected)],
-    agents: () => [claudeSection(status), agentsSection(agents), planSection(status)],
-    chat: () => [apiSection(hasKey), chatProvidersSection(chatKeys, keyChanged), localSection(customKey)],
+    agents: () => [agentsSection(agents)],
+    chat: () => [chatProvidersSection(chatKeys, keyChanged), localSection(customKey)],
     integrations: () => [integrationsSection(present), ...whatsappSections()],
     phone: () => [phoneSection(settings.phoneLink ?? false, toggle, settings)],
     shortcuts: () => [shortcutsSection(shortcutReport)],

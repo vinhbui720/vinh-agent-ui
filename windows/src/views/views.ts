@@ -9,7 +9,7 @@ import { State, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
 import { buildPrompt } from "./chat";
-import { isSpeaking, stopSpeech } from "../island/opencode";
+import { isSpeaking, setSpeech, speechOn, stopSpeech } from "../island/opencode";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { FOCUS_PILL, focusRev } from "./focus";
 import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
@@ -379,7 +379,7 @@ function buildOverview(actions: ViewActions): ViewHost {
           h("span", { class: "tool", text: t(sessionSubtitle(task.id)) }),
         );
         // OpenCode is being read aloud: one click silences it (and the rest of that answer).
-        if (task.id === "agent_opencode" && isSpeaking()) {
+        if ((task.id === "agent_opencode" || task.id === "agent_hermes") && isSpeaking()) {
           who.append(h("button", {
             class: "oc-stop oc-plain oc-quiet", title: tl("Stop reading aloud"),
             onclick: () => stopSpeech(),
@@ -748,7 +748,8 @@ function buildFinished(actions: ViewActions): ViewHost {
       const task = State.focusTask;
       title.textContent = task?.finalLine || (task && lastTextStep(task.steps)) || t("Session finished");
       // Sessions from the Claude desktop app live there, not in a terminal.
-      const label = task?.id === "agent_claude-desktop" ? t("Open Claude") : t("Open terminal");
+      const inChat = !!task && (task.id.startsWith("ocs_") || task.id === "agent_opencode" || task.id === "agent_hermes");
+      const label = inChat ? t("Open chat") : task?.id === "agent_claude-desktop" ? t("Open Claude") : t("Open terminal");
       const span = open.firstElementChild as HTMLElement;
       if (span.textContent !== label) span.textContent = label;
     },
@@ -793,13 +794,13 @@ function buildSettings(actions: ViewActions): ViewHost {
   const segButtons = AUTO_CLOSE_CHOICES.map((s) =>
     h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
   );
-  const claudeBadge = h("span", { class: "status-badge" });
-  const apiBadge = h("span", { class: "status-badge" });
+  const speakSwitch = h("button", { class: "switch", onclick: () => { setSpeech(!speechOn()); State.notify(); } });
 
   const rows = h(
     "div",
     { class: "settings-rows" },
     h("div", { class: "settings-row" }, soundSwitch, h("span", { text: tl("Sound") }), volume),
+    h("div", { class: "settings-row" }, speakSwitch, h("span", { text: tl("Read aloud") })),
     h(
       "div",
       { class: "settings-row" },
@@ -810,8 +811,6 @@ function buildSettings(actions: ViewActions): ViewHost {
     h(
       "div",
       { class: "settings-row", style: "gap:14px" },
-      claudeBadge,
-      apiBadge,
       h("div", { class: "grow" }),
       h("button", {
         class: "link-btn",
@@ -834,13 +833,7 @@ function buildSettings(actions: ViewActions): ViewHost {
       volume.style.opacity = s.soundEnabled ? "1" : "0.4";
       autoLabel.textContent = t("Auto-close · {seconds}s", { seconds: s.autoCloseInterval });
       segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === AUTO_CLOSE_CHOICES[i]));
-      clear(claudeBadge);
-      claudeBadge.append(
-        dot(s.hooksInstalled ? "#22C55E" : "#F4505E", 6),
-        h("span", { text: "Claude Code" }),
-      );
-      clear(apiBadge);
-      apiBadge.append(dot("#F4505E", 6), h("span", { text: "API" }));
+      speakSwitch.classList.toggle("on", speechOn());
     },
   };
 }

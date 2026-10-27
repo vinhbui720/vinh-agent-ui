@@ -16,10 +16,11 @@ import {
 import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
 import type { ViewHost } from "./views";
-import { OPENCODE_PILL, newOpenCodeSession, setSpeech, speakAloud, speechOn, resumeOpenCodeSession, selectOpenCodeSession, sessionOf, setOpenCodeDirectory } from "../island/opencode";
+import { OPENCODE_PILL, newOpenCodeSession, resumeOpenCodeSession, selectOpenCodeSession, sessionOf, setOpenCodeDirectory } from "../island/opencode";
 import { N_, t, tl } from "../i18n/i18n";
 import { OBSIDIAN_PILL, buildPlanner } from "./obsidian";
 import { buildCall } from "./call";
+import { hx, onHermes, openHermes, sendHermes, newHermes, stopHermes, renderHermes, renderCommands, hermesPlaceholder } from "./hermes";
 
 const HERMES_PILL = "agent_hermes";
 /** The Hermes pill, and the Obsidian pill's Ask side, talk to Hermes. */
@@ -240,7 +241,10 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   }) as HTMLInputElement;
   const send = h("button", { class: "send-btn", title: tl(STRINGS.send) }, svg(ICONS.arrowUp, 11));
   const mic = h("button", { class: "mic-btn", title: tl(STRINGS.dictate), type: "button" }, svg(ICONS.mic, 12));
-  const bar = h("div", { class: "chat-bar" }, input, mic, buildCall(), send);
+  const hxMenu = h("div", { class: "hx-menu" });
+  const hxStop = h("button", { class: "oc-stop", title: tl(STRINGS.ocStop), style: "display:none", onclick: () => stopHermes() }, svg(ICONS.xmark, 9));
+  const hxNew = h("button", { class: "oc-stop oc-plain", title: tl(STRINGS.ocNew), style: "display:none", onclick: () => void newHermes() }, svg(ICONS.plus, 10));
+  const bar = h("div", { class: "chat-bar" }, hxNew, input, hxStop, mic, buildCall(), send);
   // Dictation: tap to record, tap again to stop; the local STT server (Vietnamese or English) fills the box.
   let rec: MediaRecorder | null = null;
   mic.onclick = async () => {
@@ -294,7 +298,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   } });
   const obPlan = obBtn(true, t("Plan")), obAsk = obBtn(false, t("Ask"));
   obTabs.append(obPlan, obAsk);
-  body.append(obTabs, chipRow, log, picker.el, modelRow, bar, planner.el);
+  body.append(obTabs, chipRow, log, picker.el, modelRow, hxMenu, bar, planner.el);
 
   const el = h("div", { class: "view" }, h("div", { class: "card wash chat-card" }, body));
   (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
@@ -313,8 +317,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     void drawPanel();
     State.notify();
   } }, svg(ICONS.folder, 10));
-  const ocVoice = h("button", { class: "oc-stop oc-plain", onclick: () => setSpeech(!speechOn()) }, svg(ICONS.speaker, 10));
-  const ocRow = h("div", { class: "oc-row" }, ocTabs, ocNew, ocDir, ocVoice, ocStop);
+  const ocRow = h("div", { class: "oc-row" }, ocTabs, ocNew, ocDir, ocStop);
   const ocPanel = h("div", { class: "oc-panel" });
   async function drawPanel() {
     clear(ocPanel);
@@ -387,8 +390,6 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     modelRow.style.display = on || hermesActive() ? "none" : "";
     if (!on) return;
     const oc = State.opencode;
-    ocVoice.title = t(speechOn() ? STRINGS.ocMute : STRINGS.ocSpeak);
-    ocVoice.style.opacity = speechOn() ? "1" : "0.45";
     const shown = sessionOf(State.chatPill);
     const cur = oc.sessions.find((s) => s.id === shown);
     const key = JSON.stringify([oc.sessions, shown, oc.pending, oc.error]);
@@ -473,38 +474,11 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       return;
     }
     if (hermesActive()) {
-      // Hermes: its own brain and memory; Coucou only carries the words and the session id.
+      if (hx.busy) return;
       input.value = "";
-      sending = true;
-      drawModelButton();
       Sound.play("send");
-      livePill = HERMES_PILL;
-      const history = State.chatHistory;
-      history.push({ id: nextId++, role: "user", content: query });
-      State.stateOverride = "thinking";
-      State.notify();
-      onHeightChange();
-      try {
-        const reply = await Bridge.hermesAsk(query, localStorage.getItem("hermesSession"));
-        if (reply.session) localStorage.setItem("hermesSession", reply.session);
-        history.push({ id: nextId++, role: "assistant", content: reply.text });
-        speakAloud(reply.text);
-        State.stateOverride = null;
-        Sound.play("finish");
-      } catch (err) {
-        State.stateOverride = null;
-        State.noteMessage = String(err).replace(/^Error:\s*/, "");
-        State.view = "note";
-        Sound.play("error");
-      } finally {
-        sending = false;
-        live = null;
-        renderedCount = -1;
-        drawModelButton();
-        State.notify();
-        onHeightChange();
-        input.focus();
-      }
+      input.dispatchEvent(new Event("input"));
+      void sendHermes(query).then(() => Sound.play("finish"));
       return;
     }
     input.value = "";
@@ -546,6 +520,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     }
   }
 
+  onHermes(() => { if (hermesActive()) { renderHermes(log); renderCommands(hxMenu, input); hxStop.style.display = hx.busy ? "" : "none"; onHeightChange(); } });
+  input.addEventListener("input", () => { if (hermesActive()) renderCommands(hxMenu, input); });
   send.addEventListener("click", () => void submit());
   input.addEventListener("keydown", (e) => {
     const key = (e as KeyboardEvent).key;
@@ -579,6 +555,20 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
         if (wantChip) chipRow.append(contextChip(wantChip));
       }
 
+      const hxOn = hermesActive();
+      hxStop.style.display = hxOn && hx.busy ? "" : "none";
+      hxNew.style.display = hxOn ? "" : "none";
+      if (hxOn) {
+        void openHermes();
+        renderedPill = State.chatPill; renderedCount = -1;
+        renderHermes(log);
+        renderCommands(hxMenu, input);
+        input.placeholder = hermesPlaceholder();
+        input.disabled = false;
+        drawModelButton();
+        return;
+      }
+      hxMenu.style.display = "none";
       const thinking = State.stateOverride === "thinking";
       const count = State.chatHistory.length + (thinking ? 0.5 : 0);
       if ((count !== renderedCount || State.chatPill !== renderedPill) && !live) {

@@ -15,7 +15,7 @@ import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
 import { setClaudePlanUsage, storedClaudePlanUsage } from "../views/usage";
 import { N_, t } from "../i18n/i18n";
-import { speakAloud } from "./opencode";
+import { takeNotice } from "./notices";
 
 const CLAUDE_ID = "integration_claude";
 const CURSOR_ID = "agent_cursor";
@@ -460,9 +460,12 @@ function handleHook(island: Island, payload: HookPayload) {
       // The card shows one line; the whole message goes to the pill's chat too.
       (State.chats[agentId] ??= []).push({ id: Date.now(), role: "assistant", content: String(payload.message) });
       Sound.play("finish");
-      speakAloud(said);
-      if (!State.pendingApproval) surface("finished", true);
-      else State.setPillBadge(agentId, "finished");
+      void takeNotice(said).then((how) => {
+        if (how === "wait") State.setPillBadge(agentId, "finished");
+        else if (!State.pendingApproval) surface("finished", true);
+        else State.setPillBadge(agentId, "finished");
+        State.notify();
+      });
       break;
     }
 

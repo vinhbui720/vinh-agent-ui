@@ -5351,6 +5351,32 @@
       "de": "Vorlesen beenden",
       "tr": "Sesli okumayı durdur"
     },
+    "steps": {
+      "zh-Hans": "步骤",
+      "hi": "चरण",
+      "es": "pasos",
+      "ar": "خطوات",
+      "fr": "étapes",
+      "bn": "ধাপ",
+      "pt-BR": "etapas",
+      "ru": "шагов",
+      "id": "langkah",
+      "de": "Schritte",
+      "tr": "adım"
+    },
+    "Message Hermes… (/ for commands)": {
+      "zh-Hans": "给 Hermes 发消息…（/ 查看命令）",
+      "hi": "Hermes को संदेश… (/ से कमांड)",
+      "es": "Mensaje a Hermes… (/ para comandos)",
+      "ar": "راسل Hermes… (/ للأوامر)",
+      "fr": "Message à Hermes… (/ pour les commandes)",
+      "bn": "Hermes-কে বার্তা… (/ কমান্ডের জন্য)",
+      "pt-BR": "Mensagem para o Hermes… (/ para comandos)",
+      "ru": "Сообщение Hermes… (/ — команды)",
+      "id": "Pesan ke Hermes… (/ untuk perintah)",
+      "de": "Nachricht an Hermes… (/ für Befehle)",
+      "tr": "Hermes’e mesaj… (/ komutlar için)"
+    },
     "Nothing playing": {
       "zh-Hans": "没有播放",
       "hi": "कुछ नहीं चल रहा",

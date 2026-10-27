@@ -335,8 +335,73 @@ pub async fn opencode_tts(app: AppHandle, text: String) -> Option<String> {
     let gender = crate::flow::get(&app).map(|f| f.store.lock().unwrap().prefs.voice_gender.clone()).unwrap_or_else(|| "female".into());
     let text: String = text.chars().take(1500).collect();
     tauri::async_runtime::spawn_blocking(move || {
-        local_tts(&text).or_else(|| elevenlabs(&text, &gender, Some(lang))).map(|a| base64(&a))
+        local_tts(&text, lang).or_else(|| elevenlabs(&text, &gender, Some(lang))).map(|a| base64(&a))
     }).await.ok().flatten()
+}
+
+// ── Streamed speech: raw 24 kHz PCM, pulled by the island ────────────────────
+// The island asks for the next chunk only while it has less than a few seconds queued, so the GPU of
+// the voice machine works in short bursts (Supertonic makes audio ~100x faster than it plays) and stops in between.
+
+struct PcmStream { resp: reqwest::Response, carry: Option<u8> }
+static STREAMS: OnceLock<Mutex<HashMap<String, PcmStream>>> = OnceLock::new();
+static STREAM_ID: AtomicU64 = AtomicU64::new(1);
+/// Streams closed while a pull had them out of the map: the pull drops them when it is back.
+static CLOSED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+fn closed() -> &'static Mutex<std::collections::HashSet<String>> { CLOSED.get_or_init(|| Mutex::new(Default::default())) }
+fn streams() -> &'static Mutex<HashMap<String, PcmStream>> { STREAMS.get_or_init(|| Mutex::new(HashMap::new())) }
+
+/// Starts a stream: its id, or None (not Vietnamese/English, no local server, server busy).
+#[tauri::command]
+pub async fn tts_open(text: String) -> Option<String> {
+    let lang = tts_lang(&text)?;
+    let url = voice_url("COUCOU_TTS_URL", "http://127.0.0.1:18445")?;
+    let model = std::env::var("COUCOU_TTS_MODEL").unwrap_or_else(|_| "supertonic-3".into());
+    let voice = std::env::var("COUCOU_TTS_VOICE").unwrap_or_else(|_| "F1".into());
+    let text: String = text.chars().take(1500).collect();
+    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")).clone();
+    let resp = client
+        .post(format!("{url}/v1/audio/speech"))
+        .timeout(Duration::from_secs(300))
+        .json(&json!({ "model": model, "voice": voice, "input": text, "lang": lang, "response_format": "pcm", "sample_rate": 24000, "stream_format": "audio" }))
+        .send().await.ok()?;
+    resp.status().is_success().then_some(())?;
+    let id = STREAM_ID.fetch_add(1, Ordering::Relaxed).to_string();
+    let mut map = streams().lock().unwrap();
+    if map.len() > 8 { map.clear(); } // a stream nobody closed: never let them pile up on the server
+    map.insert(id.clone(), PcmStream { resp, carry: None });
+    Some(id)
+}
+
+/// The next chunk (base64, 16-bit little-endian mono, 24 kHz), or None at the end.
+#[tauri::command]
+pub async fn tts_pull(id: String) -> Option<String> {
+    let mut st = streams().lock().unwrap().remove(&id)?;
+    loop {
+        match st.resp.chunk().await {
+            Ok(Some(b)) => {
+                let mut bytes = Vec::with_capacity(b.len() + 1);
+                bytes.extend(st.carry.take());
+                bytes.extend_from_slice(&b);
+                if bytes.len() % 2 == 1 { st.carry = bytes.pop(); }
+                if bytes.is_empty() { continue; }
+                if closed().lock().unwrap().remove(&id) { return None; } // muted meanwhile: drop it, the server stops
+                streams().lock().unwrap().insert(id, st);
+                return Some(base64(&bytes));
+            }
+            _ => return None, // end or error: the stream is dropped, the server stops
+        }
+    }
+}
+
+/// Stop reading a stream (the user muted): the server stops generating.
+#[tauri::command]
+pub fn tts_close(id: String) {
+    if streams().lock().unwrap().remove(&id).is_none() {
+        let mut c = closed().lock().unwrap();
+        if c.len() > 64 { c.clear(); }
+        c.insert(id);
+    }
 }
 
 // ── Local voice server (voice-server/AGENT-TASK.md): OpenAI-style STT and TTS ─
@@ -348,16 +413,16 @@ fn voice_url(var: &str, default: &str) -> Option<String> {
 }
 
 /// WAV bytes from the local TTS server (short timeout: ElevenLabs takes over when it is down).
-fn local_tts(text: &str) -> Option<Vec<u8>> {
+fn local_tts(text: &str, lang: &str) -> Option<Vec<u8>> {
     let url = voice_url("COUCOU_TTS_URL", "http://127.0.0.1:18445")?;
-    let model = std::env::var("COUCOU_TTS_MODEL").unwrap_or_else(|_| "vieneu-v3-turbo".into());
-    let voice = std::env::var("COUCOU_TTS_VOICE").unwrap_or_else(|_| "Mỹ Duyên".into());
-    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("http client")).clone();
+    let model = std::env::var("COUCOU_TTS_MODEL").unwrap_or_else(|_| "supertonic-3".into());
+    let voice = std::env::var("COUCOU_TTS_VOICE").unwrap_or_else(|_| "F1".into());
+    let client = HTTP.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")).clone();
     tauri::async_runtime::block_on(async {
         let r = client
             .post(format!("{url}/v1/audio/speech"))
-            .timeout(Duration::from_secs(20))
-            .json(&json!({ "model": model, "voice": voice, "input": text, "response_format": "wav" }))
+            .timeout(Duration::from_secs(60))
+            .json(&json!({ "model": model, "voice": voice, "input": text, "lang": lang, "response_format": "wav" }))
             .send()
             .await
             .ok()?;

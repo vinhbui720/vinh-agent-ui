@@ -2,7 +2,8 @@
 // Mirrors IslandRootView.swift + IslandWindowController.swift.
 
 import { Tracked, Spring, clamp } from "../core/anim";
-import { answered, OPENCODE_PILL, newOpenCodeSession } from "./opencode";
+import { answered, isSpeaking, OPENCODE_PILL, newOpenCodeSession } from "./opencode";
+import { onIslandHover } from "./notices";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
@@ -97,6 +98,7 @@ export class Island {
   private collapsed = false;
   private collapseTimer: number | null = null;
   private wasInIsland = false;
+  get hovered() { return this.wasInIsland; }
   /** A reply is being typed in a card (WhatsApp): the island stays open. */
   private holdingOpen = false;
   /** Last shape handed to Rust for the click-through test. */
@@ -185,6 +187,8 @@ export class Island {
       },
       openTerminal: () => {
         const task = State.focusTask;
+        // OpenCode and Hermes: their chat, in the island (not an editor).
+        if (task && (task.id.startsWith("ocs_") || task.id === OPENCODE_PILL || task.id === "agent_hermes")) { this.setView("prompt"); return; }
         // Sessions from the Claude desktop app live there, not in a terminal.
         if (task?.id === CLAUDE_DESKTOP_ID) void Bridge.openClaudeDesktop();
         else void Bridge.openSession(task?.sessionId ?? null, task?.sessionCwd ?? null);
@@ -501,7 +505,8 @@ export class Island {
     this.fsm.forceHome();
     this.expand(view);
     // finished/error cards: read time, then fold (answers wait pinned instead).
-    if (view === "finished" || view === "error") this.fsm.autoFold(8);
+    // While it is read aloud the card stays: it folds when the sound ends, or when the pointer leaves.
+    if ((view === "finished" || view === "error") && !isSpeaking()) this.fsm.autoFold(8);
   }
 
   /** A new Coucou waits and Mochi has nothing else to say (he is blue). */
@@ -965,6 +970,7 @@ export class Island {
     if (inIsland && !wasIn) {
       if (this.fsm.state === "coucou") this.greeting.hover();
       this.fsm.mouseEntered();
+      onIslandHover();
     }
     if (!inIsland && wasIn) {
       this.fsm.mouseLeft();

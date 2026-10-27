@@ -11,7 +11,7 @@ E = os.environ.get
 STT_URL, TTS_URL = E("STT_URL", "http://127.0.0.1:18444/v1"), E("TTS_URL", "http://127.0.0.1:18445/v1")
 OC_MODEL = E("OC_MODEL", "9router/SimpleWork")  # fast model for voice jobs (Thinking took ~6 s for a file)
 LLM_URL, LLM_MODEL = E("LLM_URL", "http://127.0.0.1:20128/v1"), E("LLM_MODEL", "claude-api/claude-haiku-4-5-20251001")
-VOICE = E("TTS_VOICE", "Mỹ Duyên")
+VOICE = E("TTS_VOICE", "F1")
 WORKDIR = E("AGENT_WORKDIR", os.path.expanduser("~"))
 GUARD_DIR = os.path.expanduser("~/voice-work")  # project dir whose opencode.json holds DENY; tested: OPENCODE_CONFIG(_CONTENT) do not enforce deny, project file does
 HERMES_RPC = E("HERMES_RPC", "")  # Coucou gateway on vinh-ubuntu, e.g. http://127.0.0.1:18766/api/rpc (tunnel)
@@ -340,7 +340,7 @@ async def entrypoint(ctx: JobContext):
         vad=vad,
         stt=stt.StreamAdapter(stt=sw, vad=vad),
         llm=openai.LLM(base_url=LLM_URL, api_key=E("LLM_KEY", "x"), model=LLM_MODEL),
-        tts=openai.TTS(base_url=TTS_URL, api_key="x", model="vieneu-v3-turbo", voice=VOICE, response_format="wav"),
+        tts=openai.TTS(base_url=TTS_URL, api_key="x", model="supertonic-3", voice=VOICE, response_format="wav"),
         turn_handling={"endpointing": {"mode": "dynamic", "min_delay": 0.25, "max_delay": 2.0}, "interruption": {"enabled": True, "mode": "vad"},
                        "preemptive_generation": {"enabled": True, "preemptive_tts": True, "max_speech_duration": 8.0}},
     )

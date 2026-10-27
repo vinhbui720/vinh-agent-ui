@@ -103,7 +103,8 @@ function build(): HTMLElement {
     return h("div", { class: "fc" },
       h("div", { class: "fc-row" },
         chip(N_("‹ Back"), false, () => { open = false; redraw(); }),
-        chip(N_("Refresh"), false, () => { err = ""; void load(); redraw(); })),
+        chip(N_("Refresh"), false, () => { err = ""; void load(); redraw(); }),
+        picked.length ? chip(`${N_("OK")} (${picked.length})`, true, () => { open = false; redraw(); }) : null),
       h("div", { class: "fc-list" }, ...(all.length ? all.map((t) => h("button", {
         class: "fc-opt" + (isPicked(t) ? " on" : ""),
         onclick: () => { picked = isPicked(t) ? picked.filter((p) => !same(p, t)) : [...picked, t]; redraw(); } },

@@ -61,27 +61,26 @@ fn is_browser(win: &str) -> bool {
     run("xprop", &["-id", win, "WM_CLASS"]).map(|s| { let s = s.to_lowercase(); ["chrome", "chromium", "brave", "firefox", "edge"].iter().any(|b| s.contains(b)) }).unwrap_or(false)
 }
 
-/// Runs `f` with a short-lived bsk session (it opens a background Agent Window, so never poll with it).
-fn with_bsk<T>(f: impl FnOnce(&str) -> T) -> Option<T> {
-    let out = run("bsk", &["session", "start", "--json"])?;
-    let sid = serde_json::from_str::<Value>(&out).ok()?["session_id"].as_str()?.to_string();
-    let r = f(&sid);
-    let _ = run("bsk", &["session", "stop", &sid]);
-    Some(r)
+/// One request to the Chrome extension's native host (extension/host.py) over its Unix socket.
+fn host(req: &str) -> Option<Value> {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
+    let mut s = std::os::unix::net::UnixStream::connect(format!("{dir}/coucou-tabs.sock")).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    s.write_all(format!("{req}\n").as_bytes()).ok()?;
+    let mut line = String::new();
+    BufReader::new(s).read_line(&mut line).ok()?;
+    serde_json::from_str(&line).ok()
 }
 
-/// Tabs in the user's real windows: { tab_id, title, url, active }.
+/// Tabs of every window: { tab_id, title, url, active } (needs the extension in extension/).
 pub fn tab_list() -> Vec<Value> {
-    with_bsk(|s| {
-        let out = run("bsk", &["tab", "list", "--session", s, "--scope", "user", "--json"]).unwrap_or_default();
-        serde_json::from_str::<Value>(&out).ok().and_then(|v| v["tabs"].as_array().cloned()).unwrap_or_default()
-    })
-    .unwrap_or_default()
+    host(r#"{"cmd":"list"}"#).and_then(|v| v["tabs"].as_array().cloned()).unwrap_or_default()
 }
 
-/// Brings a tab to the front (bsk tab select).
+/// Brings a tab to the front.
 pub fn tab_select(tab_id: &str) -> bool {
-    with_bsk(|s| run("bsk", &["tab", "select", "--session", s, tab_id]).is_some()).unwrap_or(false)
+    host(&json!({ "cmd": "select", "id": tab_id.trim_matches('"') }).to_string()).is_some()
 }
 
 /// Closes the focused tab of the focused browser window (Ctrl+W). Only when a browser has the focus.

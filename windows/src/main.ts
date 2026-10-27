@@ -8,6 +8,7 @@ import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
 import { registerHookHandlers } from "./island/hooks";
 import { registerOpenCode } from "./island/opencode";
+import { registerNotices } from "./island/notices";
 import { registerPhoneLink } from "./island/phone-link";
 import { registerIntegrationHandlers, refreshConfigured } from "./island/integrations";
 import { registerShortcutHandlers } from "./island/shortcuts";
@@ -164,6 +165,7 @@ async function main() {
   if ((window as any).__COUCOU_WEB__) followDesktop(island);
   else registerHookHandlers(island);
   registerOpenCode(island);
+  registerNotices(island);
   registerPhoneLink(island);
   registerIntegrationHandlers(island);
   registerShortcutHandlers(island, () => setPaused(false));

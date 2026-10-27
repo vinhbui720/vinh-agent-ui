@@ -12,6 +12,7 @@ mod flow;
 mod focus;
 mod github;
 mod hermes;
+mod notice;
 mod hooks;
 mod i18n;
 mod identity;
@@ -897,6 +898,13 @@ pub fn run() {
             opencode_history,
             opencode_ls,
             hermes::hermes_ask,
+            hermes::hermes_open,
+            hermes::hermes_send,
+            hermes::hermes_cancel,
+            hermes::hermes_permission,
+            hermes::hermes_new,
+            notice::notice_focus,
+            notice::notice_can_speak,
             focus::focus_start,
             focus::focus_stop,
             focus::focus_state,
@@ -907,6 +915,9 @@ pub fn run() {
             obsidian::obsidian_toggle,
             obsidian::obsidian_add,
             voice::opencode_tts,
+            voice::tts_open,
+            voice::tts_pull,
+            voice::tts_close,
             voice::local_stt,
             voice::voice_token,
             voice::call_cmd,
@@ -1090,6 +1101,7 @@ pub fn run() {
             shortcuts::apply(&handle, &loaded.shortcuts);
             // New versions: nothing goes to GitHub until the user agrees (update.rs).
             update::start(handle.clone());
+            notice::start(&handle);
             if loaded.autostart {
                 // Login items written before 0.5 start Coucou without --autostart:
                 // writing it again adds it, so the window stays hidden at login.

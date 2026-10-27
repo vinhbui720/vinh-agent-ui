@@ -1,0 +1,10 @@
+[Unit]
+Description=Supertonic 3 TTS (GPU)
+[Service]
+WorkingDirectory=%h/vinh-voice/supertonic
+Environment=HOST=127.0.0.1 PORT=8003
+Environment=LD_LIBRARY_PATH=%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/curand/lib:%h/vinh-voice/supertonic/.venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib
+ExecStart=%h/vinh-voice/supertonic/.venv/bin/python server.py
+Restart=on-failure
+[Install]
+WantedBy=default.target

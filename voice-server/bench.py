@@ -4,7 +4,7 @@ import io, json, os, re, statistics as st, subprocess, sys, time, unicodedata, u
 from concurrent.futures import ThreadPoolExecutor
 STT = os.environ.get("STT", "https://station1tuf.tail17c1ee.ts.net:8444")
 TTS = os.environ.get("TTS", "https://station1tuf.tail17c1ee.ts.net:8445")
-SM, TM, VOICE = "Systran/faster-whisper-large-v3", "vieneu-v3-turbo", "Mỹ Duyên"
+SM, TM, VOICE = "Systran/faster-whisper-large-v3", "supertonic-3", "F1"
 N = 3 if "quick" in sys.argv else 10
 NS = 3 if "quick" in sys.argv else 5
 TEXT = {
