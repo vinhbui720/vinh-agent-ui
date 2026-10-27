@@ -46,8 +46,18 @@ def sentences(text, cap=300):
     return res
 
 
+PAD = 0.08  # seconds of quiet kept at each end of a sentence; the model pads ~0.5 s, which is a long gap between sentences
+
+
+def trim(a):
+    loud = np.flatnonzero(np.abs(a) > 0.02)
+    if loud.size == 0: return a
+    k = int(PAD * RATE)
+    return a[max(0, loud[0] - k): loud[-1] + k + 1]
+
+
 def pcm16(wav, rate):
-    a = np.asarray(wav, dtype=np.float32).reshape(-1)
+    a = trim(np.asarray(wav, dtype=np.float32).reshape(-1))
     if rate != RATE:
         g = gcd(RATE, rate); a = resample_poly(a, rate // g, RATE // g)
     return (np.clip(a, -1, 1) * 32767).astype("<i2").tobytes()
