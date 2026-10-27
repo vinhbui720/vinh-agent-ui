@@ -26,13 +26,13 @@ export function registerNotices(i: Island) {
 }
 
 /** What the island does with a notice: read it, or leave it as a badge. Returns whether the card should pop up. */
-export async function takeNotice(text: string): Promise<"read" | "wait" | "silent"> {
+export async function takeNotice(text: string, show?: (part: string) => void): Promise<"read" | "wait" | "silent"> {
   if (!speechOn()) return "silent"; // reading off: the card appears as it always did
   const mine = await Bridge.noticeCanSpeak().catch(() => false);
   if (!mine || burst >= BURST) { waiting.push(text); if (waiting.length > BURST) waiting.shift(); return "wait"; }
   burst++;
   reading = true;
-  speakAloud(text, "Hermes");
+  speakAloud(text, "Hermes", show);
   return "read";
 }
 
@@ -49,7 +49,7 @@ export function onIslandHover() {
   }
   if (waiting.length && speechOn()) {
     reading = true;
-    for (const t of waiting.splice(0)) { burst++; speakAloud(t, "Hermes"); }
+    for (const t of waiting.splice(0)) { burst++; speakAloud(t, "Hermes"); } // waiting ones show whole
   }
 }
 

@@ -107,9 +107,9 @@ function btn(
 function agentWho(task: AgentTask | null, label: string): HTMLElement {
   const row = h("div", { class: "who-row" });
   if (task) {
-    row.append(dot(task.color, 8), h("span", { class: "n", text: task.name }));
+    row.append(dot(task.color, 8), h("span", { class: "n", text: task.cardName || task.name }));
   }
-  row.append(h("span", { text: label }));
+  if (label) row.append(h("span", { text: label }));
   return row;
 }
 
@@ -743,7 +743,8 @@ function buildFinished(actions: ViewActions): ViewHost {
     sync() {
       clear(who);
       const agent = State.focusTask?.source === "agent";
-      who.append(agentWho(State.focusTask, agent ? t("finished") : t("Claude Code finished")));
+      // An OpenCode session card names the session only.
+      who.append(agentWho(State.focusTask, State.focusTask?.id.startsWith("ocs_") || State.focusTask?.cardName ? "" : agent ? t("finished") : t("Claude Code finished")));
       // The final message, else the last step that is not a diff (FinishedView).
       const task = State.focusTask;
       title.textContent = task?.finalLine || (task && lastTextStep(task.steps)) || t("Session finished");

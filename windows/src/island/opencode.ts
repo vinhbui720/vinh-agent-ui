@@ -4,7 +4,7 @@
 // Talks to OpenCode's local API through opencode.rs; no plugin, nothing written.
 // Session text is only ever shown, never logged.
 
-import { Bridge } from "../core/bridge";
+import { Bridge, onEvent } from "../core/bridge";
 import { State } from "../core/state";
 import { dropPendingCard } from "./hooks";
 import type { Island } from "./island";
@@ -24,6 +24,8 @@ export function registerOpenCode(i: Island) {
   if (timer != null) return;
   timer = window.setInterval(() => void poll(), FAST_MS);
   void poll();
+  void onEvent<{ up: boolean }>("oc-watch", (e) => { streamUp = e.up; });
+  void onEvent<Parameters<typeof onText>[0]>("oc-text", onText);
 }
 
 /** Picks the session the chat shows and the Home tag that is highlighted. */
@@ -109,17 +111,8 @@ async function poll(force = false) {
     }
     applyToPill(pill.id);
     const said = speakFinished(sessions, new Map([...perSession, ...departed]));
-    // Streaming: the card is up while it is read (each sentence keeps it open), like a Hermes notice.
-    if (said && island && !State.pendingApproval && !island.hovered) {
-      const id = State.tasks.some((x) => x.id === sessionPill(said.sid)) ? sessionPill(said.sid) : pill.id;
-      const t = State.tasks.find((x) => x.id === id);
-      if (t) {
-        t.finalLine = said.text.slice(0, 200);
-        State.setFocus(id);
-        island.alert("finished");
-        noticeShown();
-      }
-    }
+    // The card shows what is being read (each sentence, as its voice starts); see showSaid.
+    void said;
     // A session that just stopped: its answer shows as a finished notice, like Hermes'.
     for (const [id, m] of departed) {
       const last = [...m].reverse().find((x) => x.role === "assistant" && x.text.trim());
@@ -207,6 +200,7 @@ function silence() {
 export function stopSpeech() {
   silence();
   for (const st of spoken.values()) st.offset = Number.MAX_SAFE_INTEGER;
+  for (const st of live.values()) st.offset = Number.MAX_SAFE_INTEGER;
   State.notify();
 }
 
@@ -253,6 +247,20 @@ export function softEnd(text: string, from: number): number {
   return sp > 0 ? from + sp + 1 : 0;
 }
 
+/** The next piece of `text` worth a request: a finished sentence (or a long run cut at a comma / space), or all of the rest when `done`. Advances `st`. */
+function nextClip(text: string, st: { offset: number; fence: boolean }, done: boolean): string {
+  let cut = done ? text.length : sentenceEnd(text, st.offset);
+  if (!done && cut <= st.offset && text.length - st.offset > LONG) cut = softEnd(text, st.offset);
+  if (cut <= st.offset) return "";
+  const trial = { fence: st.fence };
+  const out = speakable(text.slice(st.offset, cut), trial);
+  // A tiny sentence ("Ok.") waits for the next one: short clips make the voice choppy.
+  if (!done && out.length > 0 && out.length < MIN) return "";
+  st.offset = cut;
+  st.fence = trial.fence;
+  return out;
+}
+
 /**
  * `msgs` holds every session worth a look, listed or just departed. A session absent from `sessions`
  * (or not running) has stopped: its unread rest is read now, which is what used to be missed.
@@ -278,34 +286,61 @@ export function speakFinished(
     st.open = running;
     if (!last) continue;
     if (st.id !== last.id) { st.id = last.id; st.offset = 0; st.fence = false; }
-    // Running: finished sentences (or a long run cut at a comma / space). Stopped: whatever is left.
-    let cut = running ? sentenceEnd(last.text, st.offset) : last.text.length;
-    if (running && cut <= st.offset && last.text.length - st.offset > LONG) cut = softEnd(last.text, st.offset);
-    if (cut <= st.offset) continue;
-    const trial = { fence: st.fence };
-    const text = speakable(last.text.slice(st.offset, cut), trial);
-    // A tiny sentence ("Ok.") waits for the next one: short clips make the voice choppy.
-    if (running && text.length < MIN && text.length > 0) continue;
-    st.offset = cut;
-    st.fence = trial.fence;
+    // Live stream up: it reads (see onText); here the offset only follows, so a dropped stream resumes from it.
+    if (streamUp) { st.offset = last.text.length; continue; }
+    const text = nextClip(last.text, st, !running);
+    if (!text) continue;
     const s = sessions.find((x) => x.id === sid);
     const name = s ? s.title || s.directory?.split("/").pop() || "" : "";
-    if (text && speechOn()) { enqueue(text, `OpenCode ${name}`.trim()); said = { sid, text }; }
+    if (text && speechOn()) { enqueue(text, `OpenCode ${name}`.trim(), (p) => showSaid(sid, p)); said = { sid, text }; }
   }
   return said;
 }
 
+// Live text: OpenCode's event stream (opencode.rs `watch`) sends every piece of an answer as it is written.
+// A finished sentence is queued at once, and shown on the card when its voice starts. While the stream is
+// down the poll above reads instead (it may then repeat or skip a sentence at the switch).
+let streamUp = false;
+const live = new Map<string, { mid: string; ord: number; buf: string; offset: number; fence: boolean }>();
+
+function sessionName(sid: string): string {
+  const s = State.opencode.sessions.find((x) => x.id === sid);
+  return s ? s.title || s.directory.split("/").pop() || "" : "";
+}
+
+function onText(e: { kind: "delta" | "ended"; sid: string; mid: string; ord: number; text: string }) {
+  let st = live.get(e.sid);
+  if (!st || st.mid !== e.mid || st.ord !== e.ord) { st = { mid: e.mid, ord: e.ord, buf: "", offset: 0, fence: false }; live.set(e.sid, st); }
+  if (e.kind === "delta") st.buf += e.text; else st.buf = e.text || st.buf;
+  const text = nextClip(st.buf, st, e.kind === "ended");
+  if (text && speechOn()) enqueue(text, `OpenCode ${sessionName(e.sid)}`.trim(), (p) => showSaid(e.sid, p));
+}
+
+/** The card of that session's pill (else the OpenCode pill) shows the sentence being read. */
+function showSaid(sid: string, text: string) {
+  const pill = State.tasks.find((x) => x.id === OPENCODE_PILL);
+  if (!pill || !island || State.pendingApproval || island.hovered) return;
+  const id = State.tasks.some((x) => x.id === sessionPill(sid)) ? sessionPill(sid) : pill.id;
+  const t = State.tasks.find((x) => x.id === id);
+  if (!t) return;
+  t.finalLine = text.slice(0, 200);
+  t.cardName = id === pill.id ? sessionName(sid) || null : null;
+  State.setFocus(id);
+  island.alert("finished");
+  noticeShown();
+}
+
 /** Reads a message aloud (same voice, mute and stop rules as OpenCode's answers). */
-export function speakAloud(text: string, who?: string) {
+export function speakAloud(text: string, who?: string, show?: (part: string) => void) {
   const say = speakable(text);
-  if (say) enqueue(say, who);
+  if (say) enqueue(say, who, show);
 }
 
 let lastWho = "";
 // A text is read sentence by sentence, each one asked of the voice server only when the audio before it is
 // nearly used up: the server's GPU works in bursts and rests while you listen.
 const MAXCLIP = 160;
-function enqueue(text: string, who = "") {
+function enqueue(text: string, who = "", show?: (part: string) => void) {
   if (!speechOn()) return; // muted: no request at all
   const parts: string[] = [];
   for (const sent of text.match(/[^.!?…。！？\n]+[.!?…。！？]*["')\]]*\s*/g) ?? [text]) {
@@ -318,10 +353,10 @@ function enqueue(text: string, who = "") {
     while (p.length > MAXCLIP) {
       const cut = p.lastIndexOf(" ", MAXCLIP);
       const at = cut > 60 ? cut : MAXCLIP;
-      enqueue1(p.slice(0, at).trim(), who);
+      enqueue1(p.slice(0, at).trim(), who, show);
       p = p.slice(at).trim();
     }
-    if (p) enqueue1(p, who);
+    if (p) enqueue1(p, who, show);
   }
 }
 
@@ -348,7 +383,7 @@ function pcm(b64: string): AudioBuffer {
 }
 
 /** Streams one text into the player. Resolves once it is all queued, to a promise of when it has been heard; null when no stream could start. */
-async function playStream(text: string, mine: number): Promise<{ heard: Promise<void> } | null> {
+async function playStream(text: string, mine: number, onStart?: () => void): Promise<{ heard: Promise<void> } | null> {
   ctx ??= new AudioContext();
   // Nothing is asked of the server until the audio already queued is about to run out.
   for (let w = cursor - ctx.currentTime - AHEAD; w > 0 && mine === generation; w = cursor - ctx.currentTime - AHEAD) {
@@ -374,7 +409,12 @@ async function playStream(text: string, mine: number): Promise<{ heard: Promise<
     src.connect(gain);
     cursor = Math.max(cursor, ctx.currentTime + (first ? 0.05 : 0)) ;
     src.start(cursor);
-    if (first) { first = false; void Bridge.log("tts streaming"); }
+    if (first) {
+      first = false;
+      void Bridge.log("tts streaming");
+      // The sentence appears on the card when its voice starts, not when it was queued.
+      window.setTimeout(() => { if (mine === generation) onStart?.(); }, Math.max(0, (cursor - buf.duration - ctx.currentTime) * 1000));
+    }
     cursor += buf.duration;
     sources.add(src);
     lastEnd = new Promise((r) => { src.onended = () => { sources.delete(src); r(); }; });
@@ -383,7 +423,9 @@ async function playStream(text: string, mine: number): Promise<{ heard: Promise<
   return { heard: dead ? Promise.resolve() : lastEnd };
 }
 
-function enqueue1(text: string, who = "") {
+function enqueue1(text: string, who = "", show?: (part: string) => void) {
+  const raw = text;
+  const onStart = show ? () => show(raw) : undefined;
   // Clips play in the order they arrived; the speaker is named when it changes ("Hermes. …").
   if (who && who !== lastWho) text = `${who}. ${text}`;
   lastWho = who;
@@ -394,13 +436,14 @@ function enqueue1(text: string, who = "") {
   // the clip counts as read when its audio has been heard.
   const step = queue.then(async (): Promise<Promise<void>> => {
     if (mine !== generation || !speechOn()) return Promise.resolve();
-    const streamed = await playStream(text, mine);
+    const streamed = await playStream(text, mine, onStart);
     if (streamed) return streamed.heard;
     // No stream (ElevenLabs, or the local server is off): the whole clip, as before.
     const mp3 = await Bridge.opencodeTts(text).catch(() => null);
     if (!mp3 || mine !== generation) return Promise.resolve();
     const a = new Audio(`data:audio/${mp3.startsWith("UklGR") ? "wav" : "mpeg"};base64,${mp3}`);
     playing = a;
+    onStart?.();
     a.volume = Math.min(1, voiceVolume());
     await new Promise<void>((done) => {
       a.onended = a.onerror = a.onpause = () => done();

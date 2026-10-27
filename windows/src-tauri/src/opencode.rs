@@ -71,6 +71,67 @@ async fn call(method: reqwest::Method, path: &str, body: Option<Value>) -> Resul
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
+/// Follows OpenCode's live event stream (`GET /api/event`, SSE) and hands the island only the answer
+/// text as it is written: `oc-text` {kind: "delta" | "ended", sid, mid, ord, text}. `oc-watch` {up}
+/// says whether the stream is connected (the island reads from the poll while it is not).
+/// Reasoning and tool output are dropped here, and nothing of the text is ever logged.
+pub fn watch(app: tauri::AppHandle) {
+    use tauri::Emitter;
+    tauri::async_runtime::spawn(async move {
+        let mut up = false;
+        loop {
+            let res = follow(&app, &mut up).await;
+            if up {
+                up = false;
+                let _ = app.emit_to(crate::island::WINDOW_LABEL, "oc-watch", json!({ "up": false }));
+            }
+            // Not running or dropped (the stream is volatile): look again soon.
+            tokio::time::sleep(Duration::from_secs(if res.is_ok() { 1 } else { 4 })).await;
+        }
+    });
+}
+
+async fn follow(app: &tauri::AppHandle, up: &mut bool) -> Result<(), String> {
+    use tauri::Emitter;
+    let s = service()?;
+    let http = reqwest::Client::builder().connect_timeout(Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
+    let mut res = http
+        .get(format!("{}/api/event", s.url))
+        .basic_auth("opencode", Some(&s.password))
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .map_err(|_| "OpenCode does not answer".to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("OpenCode answered {}", res.status()));
+    }
+    *up = true;
+    let _ = app.emit_to(crate::island::WINDOW_LABEL, "oc-watch", json!({ "up": true }));
+    let mut buf: Vec<u8> = vec![];
+    // Heartbeats come every few seconds: a minute of silence means the connection is dead.
+    while let Ok(Ok(Some(chunk))) = tokio::time::timeout(Duration::from_secs(60), res.chunk()).await {
+        buf.extend_from_slice(&chunk);
+        while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = buf.drain(..=nl).collect();
+            let Some(data) = line.strip_prefix(b"data:") else { continue };
+            let Ok(v) = serde_json::from_slice::<Value>(data) else { continue };
+            let kind = match v["type"].as_str() {
+                Some("session.text.delta") => "delta",
+                Some("session.text.ended") => "ended",
+                _ => continue,
+            };
+            let d = &v["data"];
+            let text = if kind == "delta" { d["delta"].as_str() } else { d["text"].as_str() }.unwrap_or("");
+            let _ = app.emit_to(
+                crate::island::WINDOW_LABEL,
+                "oc-text",
+                json!({ "kind": kind, "sid": d["sessionID"], "mid": d["assistantMessageID"], "ord": d["ordinal"], "text": text }),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The sessions running now, most recently updated first.
 pub async fn sessions() -> Result<Vec<Session>, String> {
     let active = call(reqwest::Method::GET, "/api/session/active", None).await?;

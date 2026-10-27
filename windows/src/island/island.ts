@@ -502,6 +502,8 @@ export class Island {
   /** Alert from the hook server: open on this view. Pinned alerts never auto-close. */
   alert(view: IslandViewName) {
     this.fsm.pinned = State.isPinned;
+    // Set before the island opens: opening starts the close countdown. Read aloud: held until the sound ends.
+    this.fsm.noticeHold = view === "finished" || view === "error" ? (isSpeaking() ? 600 : 8) : 0;
     this.fsm.forceHome();
     this.expand(view);
     // finished/error cards: read time, then fold (answers wait pinned instead).
@@ -970,6 +972,8 @@ export class Island {
     if (inIsland && !wasIn) {
       if (this.fsm.state === "coucou") this.greeting.hover();
       this.fsm.mouseEntered();
+      // Seen: leaving now folds it with the normal island delay.
+      this.fsm.noticeHold = 0;
       onIslandHover();
     }
     if (!inIsland && wasIn) {

@@ -50,6 +50,8 @@ export class IslandStateMachine {
 
   private homeDelay = 1;
   private byHover = false;
+  /** A notice card (finished/error) is up: leaving it folds after this many seconds, not the quick normal delay. */
+  noticeHold = 0;
   private petitHide: number | null = null;
   private homeCollapse: number | null = null;
   private greetCollapse: number | null = null;
@@ -93,7 +95,7 @@ export class IslandStateMachine {
         this.schedulePetitHide();
         break;
       case "home":
-        this.scheduleHomeCollapse();
+        this.scheduleHomeCollapse(this.noticeHold ? this.noticeHold * 1000 : undefined);
         break;
       case "coucou":
         this.clear("greetCollapse");
@@ -213,6 +215,7 @@ export class IslandStateMachine {
     // Browser build: a stand-alone screen, never folded to the compact pill or hidden.
     if ((next === "petit" || next === "hidden") && (window as any).__COUCOU_WEB__) next = "home";
     if (next === this.state) return;
+    if (next !== "home") this.noticeHold = 0;
     const from = this.state;
     this.state = next;
     this.onTransition?.(from, next);

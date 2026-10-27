@@ -40,6 +40,8 @@ export interface AgentTask {
   sessionId?: string | null;
   /** Claude's final message after Stop, one line; cleared when a new turn starts. */
   finalLine?: string | null;
+  /** Name shown on the finished card instead of the pill's (OpenCode: the session being read). */
+  cardName?: string | null;
 }
 
 export interface ApprovalInfo {
@@ -465,6 +467,7 @@ class AppState {
       delete t.stepSeq;
       t.pillBadge = null;
       t.finalLine = null;
+      t.cardName = null;
       const def = pillDefinition(id);
       if (def) t.name = def.name;
       this.clearSessionDiffs(id);

@@ -1101,6 +1101,7 @@ pub fn run() {
             shortcuts::apply(&handle, &loaded.shortcuts);
             // New versions: nothing goes to GitHub until the user agrees (update.rs).
             update::start(handle.clone());
+            opencode::watch(handle.clone());
             notice::start(&handle);
             if loaded.autostart {
                 // Login items written before 0.5 start Coucou without --autostart:
