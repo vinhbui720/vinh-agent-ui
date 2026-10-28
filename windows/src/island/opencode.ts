@@ -309,6 +309,7 @@ function sessionName(sid: string): string {
 }
 
 function onText(e: { kind: "delta" | "ended"; sid: string; mid: string; ord: number; text: string }) {
+  streamUp = true; // the one-time "up" signal may have come before this listened: a text event proves it
   let st = live.get(e.sid);
   if (!st || st.mid !== e.mid || st.ord !== e.ord) { st = { mid: e.mid, ord: e.ord, buf: "", offset: 0, fence: false }; live.set(e.sid, st); }
   if (e.kind === "delta") st.buf += e.text; else st.buf = e.text || st.buf;

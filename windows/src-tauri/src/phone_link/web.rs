@@ -97,7 +97,7 @@ async fn reply(s: &mut TcpStream, code: u16, body: Value) {
 /// (window moves, settings, secrets, hooks) stay out of reach of a token holder.
 const EVENTS: &[&str] = &[
     "hook", "integration", "github-alerts", "chat-delta", "notes-changed", "settings-changed",
-    "spotify", "spotify-artwork", "youtube", "youtube-artwork", "voice-say",
+    "spotify", "spotify-artwork", "youtube", "youtube-artwork", "voice-say", "hermes-event",
 ];
 
 static SNAPSHOT: Mutex<String> = Mutex::new(String::new());
@@ -168,6 +168,11 @@ async fn rpc(app: &AppHandle, cmd: &str, a: &Value) -> Result<Value, String> {
         "chat_reset" => Ok(json!(crate::chat_reset(app.state::<crate::chat::PillChats>(), s("pill")))),
         "chat_models" => j(crate::chat_models(app.state::<Shared>(), s("provider")).await),
         "hermes_ask" => j(crate::hermes::hermes_ask(app.clone(), s("text"), a["session"].as_str().map(String::from)).await),
+        "hermes_open" => j(crate::hermes::open_web(app.clone(), a["session"].as_str().map(String::from)).await),
+        "hermes_send" => j(crate::hermes::hermes_send(app.clone(), s("text")).await),
+        "hermes_cancel" => { crate::hermes::hermes_cancel(); Ok(Value::Null) }
+        "hermes_permission" => { crate::hermes::hermes_permission(a["rpc"].clone(), a["option"].as_str().map(String::from)); Ok(Value::Null) }
+        "hermes_new" => j(crate::hermes::hermes_new(app.clone()).await),
         "focus_state" => j(Ok::<_, String>(crate::focus::focus_state())),
         "obsidian_overview" => j(crate::obsidian::obsidian_overview().await),
         "obsidian_toggle" => j(crate::obsidian::obsidian_toggle(s("file"), arg(a, "line"), s("text")).await),
@@ -187,6 +192,9 @@ async fn rpc(app: &AppHandle, cmd: &str, a: &Value) -> Result<Value, String> {
         "opencode_permissions" => j(opencode::permissions().await),
         "opencode_reply" => j(opencode::reply(&s("session"), &s("request"), &s("decision")).await),
         "local_stt" => crate::voice::local_stt(s("audio"), a["mime"].as_str().map(String::from), a["lang"].as_str().map(String::from)).await.map(|t| json!(t)),
+        "tts_open" => Ok(json!(crate::voice::tts_open(s("text")).await)),
+        "tts_pull" => Ok(json!(crate::voice::tts_pull(s("id")).await)),
+        "tts_close" => { crate::voice::tts_close(s("id")); Ok(Value::Null) }
         "opencode_tts" => Ok(json!(crate::voice::opencode_tts(app.clone(), s("text")).await)),
         "refresh_integration" => Ok(json!(crate::refresh_integration(app.clone(), s("id")).await)),
         "github_refresh" => Ok(json!(crate::github_refresh(s("section")))),

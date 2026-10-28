@@ -111,6 +111,8 @@ async fn follow(app: &tauri::AppHandle, up: &mut bool) -> Result<(), String> {
     // Heartbeats come every few seconds: a minute of silence means the connection is dead.
     while let Ok(Ok(Some(chunk))) = tokio::time::timeout(Duration::from_secs(60), res.chunk()).await {
         buf.extend_from_slice(&chunk);
+        // Said again at every heartbeat: the island may have started listening after the first one.
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, "oc-watch", json!({ "up": true }));
         while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = buf.drain(..=nl).collect();
             let Some(data) = line.strip_prefix(b"data:") else { continue };

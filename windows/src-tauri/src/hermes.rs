@@ -158,8 +158,33 @@ impl Acp {
     }
 }
 
+/// What this session said so far (not logged anywhere): a browser that joins late gets it replayed (see `open_web`).
+static TRANSCRIPT: std::sync::Mutex<Vec<Value>> = std::sync::Mutex::new(Vec::new());
+
 fn emit(app: &AppHandle, v: Value) {
+    if !matches!(v["t"].as_str(), Some("perm" | "session")) {
+        let mut t = TRANSCRIPT.lock().unwrap();
+        if t.len() < 4000 { t.push(v.clone()); }
+    }
     let _ = app.emit_to(WINDOW_LABEL, "hermes-event", v);
+}
+
+/// The web app opens the chat: the one live session if there is one (its transcript is replayed to browsers only,
+/// so the desktop island does not see the history twice), else the saved one.
+pub async fn open_web(app: AppHandle, session: Option<String>) -> Result<String, String> {
+    let live = ACP.lock().unwrap().clone().map(|a| a.session.lock().unwrap().clone()).filter(|s| !s.is_empty());
+    if let Some(id) = live {
+        let past = TRANSCRIPT.lock().unwrap().clone();
+        for ev in past { crate::phone_link::web::push("hermes-event", ev); }
+        return Ok(id);
+    }
+    // A phone keeps no session of its own: the one this computer used last.
+    let saved = || std::fs::read_to_string(session_file()).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    hermes_open(app, session.filter(|s| !s.is_empty()).or_else(saved)).await
+}
+
+fn session_file() -> std::path::PathBuf {
+    crate::platform::home_dir().join(".local/share/coucou/hermes-session")
 }
 
 fn on_message(app: &AppHandle, acp: &Acp, m: Value) {
@@ -246,9 +271,11 @@ fn acp(app: &AppHandle) -> Result<Arc<Acp>, String> {
 }
 
 fn new_session(app: &AppHandle, a: &Acp) -> Result<String, String> {
+    TRANSCRIPT.lock().unwrap().clear();
     let r = a.call("session/new", serde_json::json!({ "cwd": a.cwd, "mcpServers": [] }), 60)?;
     let id = r["sessionId"].as_str().ok_or("no session")?.to_string();
     *a.session.lock().unwrap() = id.clone();
+    let _ = std::fs::write(session_file(), &id);
     emit(app, serde_json::json!({ "t": "session", "id": id }));
     Ok(id)
 }
@@ -258,9 +285,11 @@ fn new_session(app: &AppHandle, a: &Acp) -> Result<String, String> {
 pub async fn hermes_open(app: AppHandle, session: Option<String>) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         let a = acp(&app)?;
+        TRANSCRIPT.lock().unwrap().clear();
         if let Some(id) = session.filter(|s| !s.is_empty()) {
             if a.call("session/load", serde_json::json!({ "sessionId": id, "cwd": a.cwd, "mcpServers": [] }), 60).is_ok() {
                 *a.session.lock().unwrap() = id.clone();
+                let _ = std::fs::write(session_file(), &id);
                 return Ok(id);
             }
         }
@@ -279,6 +308,7 @@ pub async fn hermes_send(app: AppHandle, text: String) -> Result<String, String>
         if sid.is_empty() {
             sid = new_session(&app, &a)?;
         }
+        TRANSCRIPT.lock().unwrap().push(serde_json::json!({ "t": "user", "text": text }));
         let r = a.call("session/prompt", serde_json::json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }), 3600)?;
         Ok(r["stopReason"].as_str().unwrap_or("end_turn").to_string())
     })

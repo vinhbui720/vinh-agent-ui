@@ -91,6 +91,7 @@ export function buildPhoneCall(_actions: ViewActions): ViewHost {
     r.registerRpcMethod("mem_add", async (d) => { const { who: w, text } = JSON.parse(d.payload); await call<void>("voice_mem_add", { who: w, text }); return "ok"; });
     r.registerRpcMethod("context", async () => (await call<string>("voice_context")) ?? "");
     status.textContent = tl("Connecting…");
+    if (!navigator.mediaDevices) { status.textContent = tl("Microphone needs https"); return; }
     try {
       await r.connect(lkUrl(), await Bridge.voiceToken(WHO, pick));
       await r.localParticipant.setMicrophoneEnabled(true);

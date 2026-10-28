@@ -5715,6 +5715,19 @@
       "de": "Verbinde…",
       "tr": "Bağlanıyor…"
     },
+    "Microphone needs https": {
+      "zh-Hans": "麦克风需要 https",
+      "hi": "माइक्रोफ़ोन के लिए https चाहिए",
+      "es": "El micrófono necesita https",
+      "ar": "الميكروفون يحتاج إلى https",
+      "fr": "Le micro demande https",
+      "bn": "মাইক্রোফোনের জন্য https দরকার",
+      "pt-BR": "O microfone precisa de https",
+      "ru": "Для микрофона нужен https",
+      "id": "Mikrofon butuh https",
+      "de": "Mikrofon braucht https",
+      "tr": "Mikrofon için https gerekir"
+    },
     "Offline": {
       "zh-Hans": "离线",
       "hi": "ऑफ़लाइन",
