@@ -308,17 +308,30 @@ fn eleven_key() -> Option<String> {
 }
 
 /// "vi" for Vietnamese, "en" for English, None for anything else (not read aloud).
+/// Letters only Vietnamese has (ạ, ỗ, đ…) decide it. A sentence with only the accents Vietnamese shares with
+/// French or Spanish (ô, ó, ì…) follows the sentence read just before, so "Không có gì." stays Vietnamese.
 pub fn tts_lang(text: &str) -> Option<&'static str> {
+    use std::sync::atomic::{AtomicI64, Ordering::Relaxed};
+    static LAST_VI: AtomicI64 = AtomicI64::new(0); // unix seconds of the last Vietnamese sentence
     const VI: &str = "ăđơưạảãấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ";
-    let (mut letters, mut other) = (0usize, 0usize);
+    const SHARED: &str = "àáâãèéêìíòóôõùúýỳ";
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    let (mut letters, mut other, mut shared) = (0usize, 0usize, false);
     for c in text.chars().filter(|c| c.is_alphabetic()) {
         letters += 1;
-        if VI.contains(c.to_lowercase().next().unwrap_or(c)) {
+        let l = c.to_lowercase().next().unwrap_or(c);
+        if VI.contains(l) {
+            LAST_VI.store(now, Relaxed);
             return Some("vi");
         }
+        shared |= SHARED.contains(l);
         if !c.is_ascii() {
             other += 1;
         }
+    }
+    if shared && now - LAST_VI.load(Relaxed) < 120 {
+        LAST_VI.store(now, Relaxed);
+        return Some("vi");
     }
     // Plain Latin text is English; a few accents (café) stay English, other scripts are skipped.
     (letters > 0 && other * 10 <= letters).then_some("en")
@@ -746,11 +759,13 @@ mod tts_lang_tests {
     use super::tts_lang;
     #[test]
     fn only_vietnamese_and_english() {
-        assert_eq!(tts_lang("Xin chào, tôi là trợ lý."), Some("vi"));
         assert_eq!(tts_lang("Done. All tests pass."), Some("en"));
         assert_eq!(tts_lang("Un café, s'il vous plaît, mon ami"), Some("en"));
+        assert_eq!(tts_lang("Xin chào, tôi là trợ lý."), Some("vi"));
         assert_eq!(tts_lang("你好,世界"), None);
         assert_eq!(tts_lang("12345"), None);
+        // Only shared accents: Vietnamese right after a Vietnamese sentence.
+        assert_eq!(tts_lang("Không có gì."), Some("vi"));
     }
 }
 
